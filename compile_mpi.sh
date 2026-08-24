@@ -5,7 +5,7 @@ set -euo pipefail
 
 # Load dependencies
 case "$(hostname)" in
-    rostam1|medusa*)
+    rostam1|medusa*|buran*)
         module load gcc/14.2.0
         module load openmpi/5.0.5
         ;;
