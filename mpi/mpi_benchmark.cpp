@@ -89,7 +89,10 @@ void create_parent_dir(const fs::path& file_path) {
         return;
     }
     std::error_code ec;
-    if (!fs::create_directories(dir, ec)) {
+    if (!fs::create_directories(dir, ec) && !fs::exists(dir)) {
+        // create_directories() also returns false if another process won the
+        // race and created the directory first; only a genuine failure (it
+        // still doesn't exist) should be treated as an error.
         throw std::runtime_error("Failed to create directory: " + dir.string() +
                                  " (" + ec.message() + ")");
     }
