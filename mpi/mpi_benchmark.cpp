@@ -18,6 +18,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -224,6 +225,43 @@ void validate_algorithm_applicability(const CollectiveBench& cfg) {
             std::to_string(cfg.algorithm) +
             " is two_proc and requires exactly 2 ranks; got " +
             std::to_string(ranks));
+    }
+}
+
+// Maps an --operation name to OpenMPI's OMPI_MCA_coll_tuned_<suffix>_algorithm
+// suffix, which doesn't always match (mirrors the mapping in mpi_tests.sbatch).
+std::string mca_suffix_for(const std::string& operation) {
+    if (operation == "broadcast")  return "bcast";
+    if (operation == "all_gather") return "allgather";
+    if (operation == "all_reduce") return "allreduce";
+    if (operation == "all_to_all") return "alltoall";
+    return operation;
+}
+
+// Warns (does not abort) if --algorithm doesn't match what OpenMPI was told
+// to use via env vars, so a launcher that fails to propagate them doesn't
+// silently mislabel auto-selected timings as a specific algorithm.
+void validate_algorithm_env(const CollectiveBench& cfg) {
+    if (cfg.algorithm == 0) {
+        return;
+    }
+    const char* dynamic_rules = std::getenv("OMPI_MCA_coll_tuned_use_dynamic_rules");
+    if (dynamic_rules == nullptr || std::string(dynamic_rules) != "1") {
+        std::cerr << "WARNING: --algorithm=" << cfg.algorithm << " but "
+                     "OMPI_MCA_coll_tuned_use_dynamic_rules is "
+                  << (dynamic_rules ? ("'" + std::string(dynamic_rules) + "'") : "unset")
+                  << "; OpenMPI will auto-select instead\n";
+        return;
+    }
+    const std::string var_name =
+        "OMPI_MCA_coll_tuned_" + mca_suffix_for(cfg.name) + "_algorithm";
+    const char* algo_env = std::getenv(var_name.c_str());
+    const std::string expected = std::to_string(cfg.algorithm);
+    if (algo_env == nullptr || std::string(algo_env) != expected) {
+        std::cerr << "WARNING: " << var_name << " is "
+                  << (algo_env ? ("'" + std::string(algo_env) + "'") : "unset")
+                  << ", expected '" << expected << "' to match --algorithm="
+                  << expected << "; results may not reflect that algorithm\n";
     }
 }
 
@@ -466,6 +504,7 @@ int main(int argc, char** argv) {
         cfg.name = parsed["operation"].as<std::string>();
 
         validate_algorithm_applicability(cfg);
+        validate_algorithm_env(cfg);
 
         if (cfg.name == "scatter") {
             test_scatter(cfg);
