@@ -274,9 +274,12 @@ void test_broadcast(const CollectiveBench& cfg) {
         },
         [&] { MPI_Bcast(data.data(), cfg.test_size, MPI_INT, kRoot, MPI_COMM_WORLD); },
         [&](int i) {
-            if (!data.empty() && data[0] != i) {
-                std::cerr << "ERROR: broadcast mismatch (size " << cfg.test_size
-                          << ", ranks " << size << ")\n";
+            for (int value : data) {
+                if (value != i) {
+                    std::cerr << "ERROR: broadcast mismatch (size " << cfg.test_size
+                              << ", ranks " << size << ")\n";
+                    break;
+                }
             }
         });
 }
@@ -294,9 +297,15 @@ void test_reduce(const CollectiveBench& cfg) {
                        MPI_SUM, kRoot, MPI_COMM_WORLD);
         },
         [&](int i) {
-            if (rank == kRoot && !recv_data.empty() && recv_data[0] != size * i) {
-                std::cerr << "ERROR: reduce mismatch (size " << cfg.test_size
-                          << ", ranks " << size << ")\n";
+            if (rank != kRoot) {
+                return;
+            }
+            for (int value : recv_data) {
+                if (value != size * i) {
+                    std::cerr << "ERROR: reduce mismatch (size " << cfg.test_size
+                              << ", ranks " << size << ")\n";
+                    break;
+                }
             }
         });
 }
@@ -318,10 +327,13 @@ void test_gather(const CollectiveBench& cfg) {
                 return;
             }
             for (int j = 0; j < size; ++j) {
-                if (recv_data[static_cast<std::size_t>(j) * cfg.test_size] != j) {
-                    std::cerr << "ERROR: gather mismatch (size " << cfg.test_size
-                              << ", ranks " << size << ")\n";
-                    break;
+                const auto block = static_cast<std::ptrdiff_t>(j) * cfg.test_size;
+                for (int k = 0; k < cfg.test_size; ++k) {
+                    if (recv_data[static_cast<std::size_t>(block + k)] != j) {
+                        std::cerr << "ERROR: gather mismatch (size " << cfg.test_size
+                                  << ", ranks " << size << ")\n";
+                        return;
+                    }
                 }
             }
         });
@@ -341,10 +353,13 @@ void test_all_gather(const CollectiveBench& cfg) {
         },
         [&](int) {
             for (int j = 0; j < size; ++j) {
-                if (recv_data[static_cast<std::size_t>(j) * cfg.test_size] != j) {
-                    std::cerr << "ERROR: all_gather mismatch (size " << cfg.test_size
-                              << ", ranks " << size << ")\n";
-                    break;
+                const auto block = static_cast<std::ptrdiff_t>(j) * cfg.test_size;
+                for (int k = 0; k < cfg.test_size; ++k) {
+                    if (recv_data[static_cast<std::size_t>(block + k)] != j) {
+                        std::cerr << "ERROR: all_gather mismatch (size " << cfg.test_size
+                                  << ", ranks " << size << ")\n";
+                        return;
+                    }
                 }
             }
         });
@@ -362,9 +377,12 @@ void test_all_reduce(const CollectiveBench& cfg) {
                           MPI_SUM, MPI_COMM_WORLD);
         },
         [&](int i) {
-            if (!recv_data.empty() && recv_data[0] != size * i) {
-                std::cerr << "ERROR: all_reduce mismatch (size " << cfg.test_size
-                          << ", ranks " << size << ")\n";
+            for (int value : recv_data) {
+                if (value != size * i) {
+                    std::cerr << "ERROR: all_reduce mismatch (size " << cfg.test_size
+                              << ", ranks " << size << ")\n";
+                    break;
+                }
             }
         });
 }
@@ -391,10 +409,13 @@ void test_all_to_all(const CollectiveBench& cfg) {
         [&](int i) {
             for (int j = 0; j < size; ++j) {
                 const int expected = j + rank + i;
-                if (recv_data[static_cast<std::size_t>(j) * cfg.test_size] != expected) {
-                    std::cerr << "ERROR: all_to_all mismatch (size " << cfg.test_size
-                              << ", ranks " << size << ")\n";
-                    break;
+                const auto block = static_cast<std::ptrdiff_t>(j) * cfg.test_size;
+                for (int k = 0; k < cfg.test_size; ++k) {
+                    if (recv_data[static_cast<std::size_t>(block + k)] != expected) {
+                        std::cerr << "ERROR: all_to_all mismatch (size " << cfg.test_size
+                                  << ", ranks " << size << ")\n";
+                        return;
+                    }
                 }
             }
         });
