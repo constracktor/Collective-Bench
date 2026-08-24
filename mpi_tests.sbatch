@@ -94,6 +94,12 @@ execute_task() {
 
   for ((i=0; i<count; i++)); do
     for rpn in 32; do
+        if [[ $((nodes * rpn)) -ne 2 &&
+              ("$task_name:$i" == "all_gather:6" ||
+               "$task_name:$i" == "all_to_all:5") ]]; then
+            echo "Skipping $task_name algorithm $i: two_proc requires exactly 2 ranks"
+            continue
+        fi
         for test_size in 1 4 16 64 256 1024 4096 16384; do
             for (( j=0; j<loop; j++ )); do
                 srun --mpi=pmix --time=0:10:00 \

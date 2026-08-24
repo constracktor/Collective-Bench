@@ -109,9 +109,13 @@ Algorithm `0` = ignore (OpenMPI auto-selects).
 | reduce | `reduce` | 1 linear, 2 chain, 3 pipeline, 4 binary, 5 binomial, 6 in-order_binary, 7 rabenseifner |
 | scatter | `scatter` | 1 basic_linear, 2 binomial, 3 linear_nb |
 | gather | `gather` | 1 basic_linear, 2 binomial, 3 linear_sync |
-| all_gather | `allgather` | 1 linear, 2 bruck, 3 recursive_doubling, 4 ring, 5 neighbor, 6 two_proc |
+| all_gather | `allgather` | 1 linear, 2 bruck, 3 recursive_doubling, 4 ring, 5 neighbor, 6 two_proc (exactly 2 ranks) |
 | all_reduce | `allreduce` | 1 basic_linear, 2 nonoverlapping, 3 recursive_doubling, 4 ring, 5 segmented_ring, 6 rabenseifner |
-| all_to_all | `alltoall` | 1 linear, 2 pairwise, 3 modified_bruck, 4 linear_sync, 5 two_proc |
+| all_to_all | `alltoall` | 1 linear, 2 pairwise, 3 modified_bruck, 4 linear_sync, 5 two_proc (exactly 2 ranks) |
+
+`mpi_tests.sbatch` skips the two-process algorithms unless the job has exactly
+two ranks. The MPI benchmark rejects the same invalid combinations when run
+manually.
 
 Both formats use the same semicolon-separated columns:
 

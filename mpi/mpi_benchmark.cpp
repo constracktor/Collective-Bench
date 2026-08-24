@@ -210,6 +210,20 @@ struct CollectiveBench {
     }
 };
 
+void validate_algorithm_applicability(const CollectiveBench& cfg) {
+    const bool is_two_proc =
+        (cfg.name == "all_gather" && cfg.algorithm == 6) ||
+        (cfg.name == "all_to_all" && cfg.algorithm == 5);
+    const int ranks = mpi_size();
+    if (is_two_proc && ranks != 2) {
+        throw std::invalid_argument(
+            "Open MPI tuned " + cfg.name + " algorithm " +
+            std::to_string(cfg.algorithm) +
+            " is two_proc and requires exactly 2 ranks; got " +
+            std::to_string(ranks));
+    }
+}
+
 void test_scatter(const CollectiveBench& cfg) {
     const int rank = mpi_rank();
     const int size = mpi_size();
@@ -426,6 +440,8 @@ int main(int argc, char** argv) {
         cfg.warmup = parsed["warmup_iterations"].as<int>();
         cfg.test_size = parsed["test_size"].as<int>();
         cfg.name = parsed["operation"].as<std::string>();
+
+        validate_algorithm_applicability(cfg);
 
         if (cfg.name == "scatter") {
             test_scatter(cfg);

@@ -22,6 +22,29 @@ jobs:
       - name: Build
         run: cmake --build build/mpi -j
 
+      - name: Reject inapplicable two-process algorithms
+        run: |
+          bin=build/mpi/bin/benchmark_collectives_mpi
+          for spec in all_gather:allgather:6 all_to_all:alltoall:5; do
+            IFS=: read -r operation mca_operation algorithm <<<"$spec"
+            env OMPI_MCA_coll_tuned_use_dynamic_rules=1 \
+              "OMPI_MCA_coll_tuned_${mca_operation}_algorithm=$algorithm" \
+              mpirun --oversubscribe -np 2 "$bin" \
+                --operation="$operation" --algorithm="$algorithm" \
+                --test_size=16 --iterations=1 --rpn=2
+            if env OMPI_MCA_coll_tuned_use_dynamic_rules=1 \
+              "OMPI_MCA_coll_tuned_${mca_operation}_algorithm=$algorithm" \
+              mpirun --oversubscribe -np 4 "$bin" \
+                --operation="$operation" --algorithm="$algorithm" \
+                --test_size=16 --iterations=1 --rpn=4 \
+                >"invalid_${operation}.log" 2>&1; then
+              echo "$operation algorithm $algorithm unexpectedly accepted four ranks"
+              exit 1
+            fi
+            grep -q "two_proc and requires exactly 2 ranks" \
+              "invalid_${operation}.log"
+          done
+
       - name: Smoke test (run each collective on 2 ranks)
         run: |
           bin=build/mpi/bin/benchmark_collectives_mpi
