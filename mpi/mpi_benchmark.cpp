@@ -46,8 +46,8 @@ int mpi_size() {
 
 struct Stats {
     double mean = 0.0;
-    double variance = 0.0;  // population variance
-    double stddev = 0.0;    // population standard deviation
+    double variance = 0.0;  // sample variance
+    double stddev = 0.0;    // sample standard deviation
     double min = 0.0;
     double max = 0.0;
     double median = 0.0;
@@ -69,7 +69,10 @@ Stats compute_stats(std::vector<double> data) {
     for (double x : data) {
         variance_sum += (x - mean) * (x - mean);
     }
-    const double variance = variance_sum / static_cast<double>(data.size());
+    // Bessel's correction: iterations are a sample, not the full population.
+    const double variance = (data.size() > 1)
+        ? variance_sum / static_cast<double>(data.size() - 1)
+        : 0.0;
     const double stddev = std::sqrt(variance);
 
     // Min, max, median — data is taken by value so sorting in place is safe.
