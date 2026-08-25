@@ -82,13 +82,15 @@ etc. as operation names.
 Both scripts accept CLI arguments to override defaults:
 
 ```
-sbatch --nodes=4 hpx_tests.sbatch --parcelport=mpi --nodes=4
-sbatch --nodes=4 mpi_tests.sbatch --nodes=4
+sbatch --nodes=4 --partition=medusa hpx_tests.sbatch --parcelport=mpi --nodes=4
+sbatch --nodes=4 --partition=medusa mpi_tests.sbatch --nodes=4
 ```
 
 The `--nodes=` flag must be passed both to `sbatch` (for resource allocation)
-and as a script argument (so the benchmark knows the topology). `run.sh` handles
-this automatically.
+and as a script argument (so the benchmark knows the topology). Both scripts'
+`#SBATCH --partition=workq` default only applies to qbd; on rostam1/medusa*
+pass `--partition=medusa`, on buran* pass `--partition=buran`. `run.sh` handles
+both the `--nodes=` duplication and the partition selection automatically.
 
 ## Output
 
