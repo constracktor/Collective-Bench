@@ -2,7 +2,7 @@
 #SBATCH --job-name=hpx_collectives          # Job name
 #SBATCH --nodes=1                 # Overridden at submission time via --nodes=
 #SBATCH --ntasks-per-node=32        # Default: 16 tasks per node
-#SBATCH --cpus-per-task=2           # 2 cores per task
+#SBATCH --cpus-per-task=1           # 1 core per task (32 tasks/node fits medusa's 40 and buran's 48 cores/node; 2 fits neither)
 #SBATCH --time=72:00:00             # Time limit (hh:mm:ss)
 #SBATCH --partition=workq         # Specify partition
 #SBATCH --output=logs/output_%j.log      # Standard output log
@@ -50,8 +50,8 @@ execute_task() {
     for rpn in 32; do
         for test_size in 1 4 16 64 256 1024 4096 16384; do
             for (( j=0; j<loop; j++ )); do
-                srun --mpi=pmix --time=0:10:00 \
-                    -N "$nodes" --ntasks-per-node "$rpn" -c 2 \
+                srun --mpi=pmix --time=0:10:00 --cpu-bind=none \
+                    -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --arity="$arity" --lpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
                     --hpx:ini=hpx.parcel.tcp.enable=0 \
