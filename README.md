@@ -19,6 +19,8 @@ iteration, and append per-run statistics to a `result/` CSV file
 | `run.sh` | Submit all HPX + MPI job combinations (parcelports × node counts) in one shot. |
 | `hpx_tests.sbatch` | SLURM batch sweep for HPX (parcelport and node count as CLI args). |
 | `mpi_tests.sbatch` | SLURM batch sweep for MPI (node count as CLI arg). |
+| `hpx_quick_tests.sbatch` | Quick HPX smoke sweep: all operations × arities, one problem size, 2 nodes, ~1 minute. |
+| `mpi_quick_tests.sbatch` | Quick MPI smoke sweep: all algorithms, one problem size, 2 nodes, ~1 minute. |
 | `logs/`, `result/` | Job logs and benchmark output (git-ignored). |
 
 ## Requirements
@@ -49,6 +51,20 @@ MPI benchmark: `./compile_mpi.sh`
 Submits HPX (tcp, mpi, lci) × MPI reference for node counts 1, 2, 4 — one
 sbatch job per combination. Logs land in `logs/output_<jobid>.log` and
 `logs/error_<jobid>.log`.
+
+### Quick smoke sweep
+
+```
+sbatch --partition=buran mpi_quick_tests.sbatch
+sbatch --partition=buran hpx_quick_tests.sbatch --parcelport=tcp
+```
+
+Every algorithm/arity combination for every collective, at a single
+representative problem size (`test_size=256`) with minimal iterations and no
+repeats, fixed at 2 nodes. Meant to finish in about a minute and sanity-check
+that every combination still runs and validates correctly — not to produce
+statistically meaningful timings. Use `mpi_tests.sbatch`/`hpx_tests.sbatch`
+for the full sweep.
 
 ### Manually
 
