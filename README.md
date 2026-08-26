@@ -68,7 +68,7 @@ for the full sweep.
 
 ### Manually
 
-HPX benchmark (the MPI parcelport requires a negative priority):
+HPX benchmark:
 
 ```
 module load gcc/14.2.0
@@ -79,6 +79,14 @@ srun -p medusa -N 2 --ntasks-per-node 2 -c 1 \
     --hpx:ini=hpx.parcel.bootstrap=tcp \
     --hpx:ini=hpx.parcel.tcp.priority=1000
 ```
+
+The `mpi` parcelport additionally needs
+`--hpx:ini=hpx.parcel.mpi.multithreaded=0` — this cluster's OpenMPI/UCX
+doesn't support the `MPI_THREAD_MULTIPLE` level HPX requests by default,
+which otherwise silently falls back to a slower transport and can segfault
+under load. Disabling it costs nothing here since every locality only gets
+one HPX worker thread anyway (`-c 1`), so there's no concurrent MPI access to
+serialize. `hpx_tests.sbatch`/`hpx_quick_tests.sbatch` already set this.
 
 MPI benchmark:
 

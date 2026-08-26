@@ -46,6 +46,12 @@ echo "Using parcelport: $parcelport, nodes: $nodes"
 iterations=3
 test_sizes=(256)
 
+# The mpi parcelport requests MPI_THREAD_MULTIPLE by default, which this
+# cluster's OpenMPI/UCX can't provide -- it silently falls back to a slower
+# transport and can segfault under load. Disabling it costs nothing here
+# since every locality only gets one HPX worker thread anyway (-c 1 below),
+# so there's no concurrent access to serialize. Harmless no-op for tcp/lci.
+
 execute_task() {
   local task_name=$1
 
@@ -61,7 +67,8 @@ execute_task() {
                 --hpx:ini=hpx.parcel.lci.enable=0 \
                 --hpx:ini=hpx.parcel."$parcelport".enable=1 \
                 --hpx:ini=hpx.parcel.bootstrap="$parcelport" \
-                --hpx:ini=hpx.parcel."$parcelport".priority=1000
+                --hpx:ini=hpx.parcel."$parcelport".priority=1000 \
+                --hpx:ini=hpx.parcel.mpi.multithreaded=0
         done
     done
   done
