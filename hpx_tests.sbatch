@@ -56,7 +56,7 @@ execute_task() {
     for rpn in 32; do
         for test_size in 1 4 16 64 256 1024 4096 16384; do
             for (( j=0; j<loop; j++ )); do
-                srun --mpi=pmix --time=0:10:00 --cpu-bind=none \
+                srun --mpi=pmix --time=0:02:00 --cpu-bind=none \
                     -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --arity="$arity" --lpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
