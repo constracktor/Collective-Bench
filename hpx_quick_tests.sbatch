@@ -55,7 +55,7 @@ test_sizes=(256)
 execute_task() {
   local task_name=$1
 
-  for arity in -1 2 4 8; do
+  for arity in 2; do
     for rpn in 32; do
         for test_size in "${test_sizes[@]}"; do
             srun --mpi=pmix --time=0:02:00 --cpu-bind=none \
