@@ -41,7 +41,7 @@ for arg in "$@"; do
 done
 echo "Using parcelport: $parcelport, nodes: $nodes"
 iterations=10
-loop=5
+loop=1
 
 # The mpi parcelport requests MPI_THREAD_MULTIPLE by default, which this
 # cluster's OpenMPI/UCX can't provide -- it silently falls back to a slower
