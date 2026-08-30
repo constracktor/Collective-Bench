@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
-# Submit HPX (all three parcelports) and MPI reference benchmark jobs for
-# node counts 1, 2, 4 (powers of 2).  Each combination becomes one sbatch job.
+# Submit HPX benchmark jobs: tcp/mpi parcelports at node counts 1, 2, 4, 8, 16;
+# lci parcelport only at 1, 2, 4 (its InfiniBand-verbs backend runs out of
+# Queue Pairs at larger scale -- see the mpi/lci parcelport crash writeup).
+# Does NOT submit the MPI reference benchmark. Each combination becomes one
+# sbatch job.
 # Usage: ./run.sh
 set -euo pipefail
 
@@ -25,8 +28,8 @@ case "$(hostname)" in
         ;;
 esac
 
-for nodes in 1 2 4; do
-    for pp in mpi tcp lci; do
+for nodes in 1 2 4 8 16; do
+    for pp in tcp mpi; do
         echo "Submitting HPX parcelport=$pp nodes=$nodes"
         sbatch --nodes="$nodes" \
                --partition="$partition" \
@@ -34,11 +37,13 @@ for nodes in 1 2 4; do
                "${ROOT}/hpx_tests.sbatch" \
                --parcelport="$pp" --nodes="$nodes"
     done
+done
 
-    echo "Submitting MPI reference nodes=$nodes"
+for nodes in 1 2 4; do
+    echo "Submitting HPX parcelport=lci nodes=$nodes"
     sbatch --nodes="$nodes" \
            --partition="$partition" \
-           --job-name="mpi_ref_n${nodes}" \
-           "${ROOT}/mpi_tests.sbatch" \
-           --nodes="$nodes"
+           --job-name="hpx_lci_n${nodes}" \
+           "${ROOT}/hpx_tests.sbatch" \
+           --parcelport=lci --nodes="$nodes"
 done
