@@ -4,9 +4,10 @@ Compile HPX with three parcelports (TCP, MPI, LCI) and benchmark its new
 hierarchical collectives, alongside an MPI reference benchmark for comparison.
 
 Both benchmarks support `broadcast`, `reduce`, `scatter`, `gather`,
-`all_gather`, `all_reduce`, and `all_to_all`, validate correctness on every
-iteration, and append per-run statistics to a `result/` CSV file
-(semicolon-separated, one header per file).
+`all_gather`, `all_reduce`, and `all_to_all`; the HPX benchmark additionally
+supports `barrier`, `exclusive_scan`, and `inclusive_scan` (no MPI reference
+equivalent). Both validate correctness on every iteration, and append per-run
+statistics to a `result/` CSV file (semicolon-separated, one header per file).
 
 ## Repository layout
 
