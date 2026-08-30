@@ -52,7 +52,7 @@ loop=5
 execute_task() {
   local task_name=$1
 
-  for arity in 2; do
+  for arity in -1 2; do
     for rpn in 32; do
         for test_size in 1 4 16 64 256 1024 4096 16384; do
             for (( j=0; j<loop; j++ )); do
