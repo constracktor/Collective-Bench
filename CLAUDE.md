@@ -7,7 +7,9 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A benchmarking harness comparing HPX's hierarchical collectives (over TCP,
 MPI, and LCI parcelports) against an MPI reference implementation (OpenMPI's
 `coll/tuned` component), across `broadcast`, `reduce`, `scatter`, `gather`,
-`all_gather`, `all_reduce`, and `all_to_all`.
+`all_gather`, `all_reduce`, and `all_to_all`. The HPX side additionally
+sweeps `barrier`, `exclusive_scan`, and `inclusive_scan`, which have no MPI
+reference counterpart.
 
 Only the MPI reference benchmark's source lives in this repo
 (`mpi/mpi_benchmark.cpp`). The HPX side is a fork

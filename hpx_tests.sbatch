@@ -26,7 +26,7 @@ case "$(hostname)" in
 esac
 
 executable="$(pwd)/build/hpx/bin/benchmark_collectives_test"
-pairs=("broadcast" "reduce" "scatter" "gather" "all_gather" "all_reduce" "all_to_all")
+pairs=("broadcast" "reduce" "scatter" "gather" "all_gather" "all_reduce" "all_to_all" "barrier" "exclusive_scan" "inclusive_scan")
 export PMIX_MCA_gds=hash
 
 # Parse command-line arguments
