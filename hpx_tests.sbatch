@@ -3,7 +3,7 @@
 #SBATCH --nodes=1                 # Overridden at submission time via --nodes=
 #SBATCH --ntasks-per-node=32        # Default: 16 tasks per node
 #SBATCH --cpus-per-task=1           # 1 core per task (32 tasks/node fits medusa's 40 and buran's 48 cores/node; 2 fits neither)
-#SBATCH --time=72:00:00             # Time limit (hh:mm:ss)
+#SBATCH --time=04:00:00             # Time limit (hh:mm:ss); generous vs observed runtimes but short enough for backfill scheduling to actually use idle nodes
 #SBATCH --partition=workq         # Specify partition
 #SBATCH --output=logs/output_%j.log      # Standard output log
 #SBATCH --error=logs/error_%j.log        # Error log file
