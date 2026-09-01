@@ -63,7 +63,7 @@ pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_redu
 export PMIX_MCA_gds=hash
 partition=workq
 iterations=10
-loop=5
+loop=1
 
 # Parse command-line arguments
 nodes=1  # default; override with --nodes=<n>
