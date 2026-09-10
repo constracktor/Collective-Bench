@@ -26,16 +26,22 @@ case "$(hostname)" in
 esac
 
 executable="$(pwd)/build/hpx/bin/benchmark_collectives_test"
-pairs=("broadcast" "reduce" "scatter" "gather" "all_gather" "all_reduce" "all_to_all" "barrier" "exclusive_scan" "inclusive_scan")
+# Collectives split by memory-scaling class (see max-problem-size probe):
+# broadcast/reduce/all_reduce/scan/scatter/gather are O(1)-per-rank or
+# root-only O(ranks), so they tolerate much larger sizes than all_gather/
+# all_to_all, which hold O(ranks * size) on every rank. barrier has no
+# payload buffer at all, so it doesn't need a size sweep and is omitted here.
+large_tolerant_pairs=("broadcast" "reduce" "all_reduce" "exclusive_scan" "inclusive_scan" "scatter" "gather")
+size_limited_pairs=("all_gather" "all_to_all")
 export PMIX_MCA_gds=hash
 
-# Parse command-line arguments
-parcelport=tcp  # default; override with --parcelport=<tcp|mpi|lci>
+# Parcelport fixed to mpi for now -- tcp/lci already have full standard-size
+# coverage from the earlier sweep; only mpi needs these new large sizes.
+parcelport=mpi
 nodes=1         # default; override with --nodes=<n>
 for arg in "$@"; do
     case "$arg" in
-        --parcelport=*) parcelport="${arg#--parcelport=}" ;;
-        --nodes=*)      nodes="${arg#--nodes=}" ;;
+        --nodes=*) nodes="${arg#--nodes=}" ;;
         *) echo "WARNING: unknown argument '$arg'" >&2 ;;
     esac
 done
@@ -47,19 +53,22 @@ loop=1
 # cluster's OpenMPI/UCX can't provide -- it silently falls back to a slower
 # transport and can segfault under load. Disabling it costs nothing here
 # since every locality only gets one HPX worker thread anyway (-c 1 below),
-# so there's no concurrent access to serialize. Harmless no-op for tcp/lci.
+# so there's no concurrent access to serialize.
 
 execute_task() {
   local task_name=$1
+  shift
+  local sizes=("$@")
 
   for arity in -1 2; do
     for rpn in 32; do
-        for test_size in 1 4 16 64 256 1024 4096 16384; do
+        for test_size in "${sizes[@]}"; do
             for (( j=0; j<loop; j++ )); do
                 srun --mpi=pmix --time=0:02:00 --cpu-bind=none \
                     -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --arity="$arity" --lpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
+                    --warmup_iterations=3 --cooldown_iterations=3 \
                     --hpx:ini=hpx.parcel.tcp.enable=0 \
                     --hpx:ini=hpx.parcel.mpi.enable=0 \
                     --hpx:ini=hpx.parcel.lci.enable=0 \
@@ -73,6 +82,9 @@ execute_task() {
   done
 }
 
-for operation in "${pairs[@]}"; do
-  execute_task "$operation"
+for operation in "${large_tolerant_pairs[@]}"; do
+  execute_task "$operation" 65536 262144 1048576 4194304 16777216
+done
+for operation in "${size_limited_pairs[@]}"; do
+  execute_task "$operation" 65536 262144
 done

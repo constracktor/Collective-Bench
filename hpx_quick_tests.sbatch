@@ -62,6 +62,7 @@ execute_task() {
                 -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                 "$executable" --arity="$arity" --lpn="$rpn" --operation="$task_name" \
                 --test_size="$test_size" --iterations="$iterations" \
+                --warmup_iterations=3 --cooldown_iterations=3 \
                 --hpx:ini=hpx.parcel.tcp.enable=0 \
                 --hpx:ini=hpx.parcel.mpi.enable=0 \
                 --hpx:ini=hpx.parcel.lci.enable=0 \

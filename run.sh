@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
-# Submit HPX benchmark jobs: tcp/mpi parcelports at node counts 1, 2, 4, 8, 16;
-# lci parcelport only at 1, 2, 4 (its InfiniBand-verbs backend runs out of
-# Queue Pairs at larger scale -- see the mpi/lci parcelport crash writeup).
-# Does NOT submit the MPI reference benchmark. Each combination becomes one
+# Submit HPX benchmark jobs (new large-size sweep) at node counts 1, 2, 4, 8,
+# 16. hpx_tests.sbatch is currently fixed to the mpi parcelport only -- tcp/
+# lci already have full standard-size coverage from the earlier sweep, and
+# tcp/lci support for these new large sizes hasn't been added back yet.
+# Does NOT submit the MPI reference benchmark. Each node count becomes one
 # sbatch job.
 # Usage: ./run.sh
 set -euo pipefail
@@ -29,21 +30,10 @@ case "$(hostname)" in
 esac
 
 for nodes in 1 2 4 8 16; do
-    for pp in tcp mpi; do
-        echo "Submitting HPX parcelport=$pp nodes=$nodes"
-        sbatch --nodes="$nodes" \
-               --partition="$partition" \
-               --job-name="hpx_${pp}_n${nodes}" \
-               "${ROOT}/hpx_tests.sbatch" \
-               --parcelport="$pp" --nodes="$nodes"
-    done
-done
-
-for nodes in 1 2 4; do
-    echo "Submitting HPX parcelport=lci nodes=$nodes"
+    echo "Submitting HPX parcelport=mpi nodes=$nodes"
     sbatch --nodes="$nodes" \
            --partition="$partition" \
-           --job-name="hpx_lci_n${nodes}" \
+           --job-name="hpx_mpi_n${nodes}" \
            "${ROOT}/hpx_tests.sbatch" \
-           --parcelport=lci --nodes="$nodes"
+           --nodes="$nodes"
 done
