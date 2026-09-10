@@ -26,17 +26,17 @@ case "$(hostname)" in
 esac
 
 executable="$(pwd)/build/hpx/bin/benchmark_collectives_test"
-# Collectives split by memory-scaling class (see max-problem-size probe):
-# broadcast/reduce/all_reduce/scan/scatter/gather are O(1)-per-rank or
-# root-only O(ranks), so they tolerate much larger sizes than all_gather/
-# all_to_all, which hold O(ranks * size) on every rank. barrier has no
-# payload buffer at all, so it doesn't need a size sweep and is omitted here.
-large_tolerant_pairs=("broadcast" "reduce" "all_reduce" "exclusive_scan" "inclusive_scan" "scatter" "gather")
-size_limited_pairs=("all_gather" "all_to_all")
+# Every collective except barrier (size-independent, no payload buffer, so a
+# size sweep doesn't apply to it). 65536 is well within the safe range for
+# all of these, including all_gather/all_to_all, at up to 16 nodes -- see the
+# max-problem-size probe for where those two actually start hurting (in the
+# millions of elements, not here).
+pairs=("broadcast" "reduce" "all_reduce" "exclusive_scan" "inclusive_scan" "scatter" "gather" "all_gather" "all_to_all")
+sizes=(1 4 16 64 256 1024 4096 16384 65536)
 export PMIX_MCA_gds=hash
 
-# Parcelport fixed to mpi for now -- tcp/lci already have full standard-size
-# coverage from the earlier sweep; only mpi needs these new large sizes.
+# Parcelport fixed to mpi for now -- tcp/lci support isn't wired back into
+# this sweep yet.
 parcelport=mpi
 nodes=1         # default; override with --nodes=<n>
 for arg in "$@"; do
@@ -82,9 +82,6 @@ execute_task() {
   done
 }
 
-for operation in "${large_tolerant_pairs[@]}"; do
-  execute_task "$operation" 65536 262144 1048576 4194304 16777216
-done
-for operation in "${size_limited_pairs[@]}"; do
-  execute_task "$operation" 65536 262144
+for operation in "${pairs[@]}"; do
+  execute_task "$operation" "${sizes[@]}"
 done
