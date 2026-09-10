@@ -1,8 +1,7 @@
 #!/usr/bin/env bash
-# Submit HPX benchmark jobs (new large-size sweep) at node counts 1, 2, 4, 8,
-# 16. hpx_tests.sbatch is currently fixed to the mpi parcelport only -- tcp/
-# lci already have full standard-size coverage from the earlier sweep, and
-# tcp/lci support for these new large sizes hasn't been added back yet.
+# Submit HPX benchmark jobs at node counts 1, 2, 4, 8, 16. hpx_tests.sbatch
+# sweeps every collective except barrier, sizes 1-65536, arity -1 and 2, mpi
+# parcelport only (tcp/lci support isn't wired back into this sweep yet).
 # Does NOT submit the MPI reference benchmark. Each node count becomes one
 # sbatch job.
 # Usage: ./run.sh
