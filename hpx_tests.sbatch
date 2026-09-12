@@ -64,6 +64,22 @@ loop=1
 # since every locality only gets one HPX worker thread anyway (-c 1 below),
 # so there's no concurrent access to serialize.
 
+# Per-step time limit, scaled to test_size. The default (2 min) covers every
+# size up to 4096 comfortably. 16384/65536 are genuinely slow at high rank
+# counts for the many-small-message collectives (all_gather/all_to_all) --
+# measured at 256 ranks: ~15.6s/iteration (16384) and ~65.2s/iteration
+# (65536), i.e. ~4.2min and ~17.4min for the full warmup+iterations+cooldown
+# run. This is real bandwidth-bound cost (confirmed linear-ish scaling with
+# size), not a hang -- give it the wall-clock time it legitimately needs
+# instead of killing it partway through.
+step_time_for_size() {
+    case "$1" in
+        65536) echo "0:20:00" ;;
+        16384) echo "0:08:00" ;;
+        *)     echo "0:02:00" ;;
+    esac
+}
+
 execute_task() {
   local task_name=$1
   shift
@@ -73,7 +89,7 @@ execute_task() {
     for rpn in 32; do
         for test_size in "${sizes[@]}"; do
             for (( j=0; j<loop; j++ )); do
-                srun --mpi=pmix --time=0:02:00 --cpu-bind=none \
+                srun --mpi=pmix --time="$(step_time_for_size "$test_size")" --cpu-bind=none \
                     -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --arity="$arity" --lpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
