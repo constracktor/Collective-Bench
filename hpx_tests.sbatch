@@ -35,6 +35,15 @@ pairs=("broadcast" "reduce" "all_reduce" "exclusive_scan" "inclusive_scan" "scat
 sizes=(1 4 16 64 256 1024 4096 16384 65536)
 export PMIX_MCA_gds=hash
 
+# all_to_all (and similar many-small-message collectives) fan out one
+# point-to-point message per peer; above UCX's default rendezvous threshold
+# each one triggers its own RDMA memory registration, and at high rank counts
+# with several ranks/node sharing one HCA this becomes a registration storm
+# (measured: 29s/iteration at 256 ranks vs. 2.1s at 128, slow enough to blow
+# through the srun --time limit below). Forcing the eager/copy path instead
+# avoids the per-message registration cost; measured 7-8x speedup at 256 ranks.
+export UCX_RNDV_THRESH=1048576
+
 # Parcelport fixed to mpi for now -- tcp/lci support isn't wired back into
 # this sweep yet.
 parcelport=mpi
