@@ -36,6 +36,7 @@ pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_redu
 export PMIX_MCA_gds=hash
 iterations=3
 warmup=1
+cooldown=1
 test_sizes=(256)
 
 # Parse command-line arguments
@@ -77,7 +78,7 @@ execute_task() {
                 -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                 "$executable" --algorithm="$i" --rpn="$rpn" --operation="$task_name" \
                 --test_size="$test_size" --iterations="$iterations" \
-                --warmup_iterations="$warmup"
+                --warmup_iterations="$warmup" --cooldown_iterations="$cooldown"
         done
     done
   done

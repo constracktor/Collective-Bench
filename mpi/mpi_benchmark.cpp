@@ -172,6 +172,7 @@ struct CollectiveBench {
     int rpn = 16;
     int iterations = 10;
     int warmup = 0;  // real default supplied by --warmup_iterations
+    int cooldown = 0;  // real default supplied by --cooldown_iterations
     int test_size = 1;
 
     template <typename Prepare, typename Collective, typename Check>
@@ -208,6 +209,17 @@ struct CollectiveBench {
                 result[static_cast<std::size_t>(i)] = t_record;
             }
             check(i);
+        }
+
+        // Untimed cooldown — mirrors warmup, run after the timed iterations
+        // so the last timed iteration isn't itself a straggler (ranks can
+        // start diverging in timing right at the end of a timed run, e.g.
+        // from teardown-adjacent work), matching the fix already applied to
+        // the HPX benchmark.
+        for (int i = 0; i < cooldown; ++i) {
+            prepare(i);
+            MPI_Barrier(MPI_COMM_WORLD);
+            collective();
         }
 
         if (rank == kRoot) {
@@ -480,6 +492,8 @@ int main(int argc, char** argv) {
          cxxopts::value<int>()->default_value("10"))
         ("warmup_iterations", "Number of untimed warmup iterations",
          cxxopts::value<int>()->default_value("3"))
+        ("cooldown_iterations", "Number of untimed cooldown iterations (run after the timed ones)",
+         cxxopts::value<int>()->default_value("3"))
         ("t,test_size", "Number of ints sent per rank",
          cxxopts::value<int>()->default_value("1"))
         ("operation", "Collective to run: broadcast|reduce|scatter|gather|all_gather|all_reduce|all_to_all",
@@ -503,6 +517,7 @@ int main(int argc, char** argv) {
         cfg.module = parsed["module"].as<std::string>();
         cfg.iterations = parsed["iterations"].as<int>();
         cfg.warmup = parsed["warmup_iterations"].as<int>();
+        cfg.cooldown = parsed["cooldown_iterations"].as<int>();
         cfg.test_size = parsed["test_size"].as<int>();
         cfg.name = parsed["operation"].as<std::string>();
 

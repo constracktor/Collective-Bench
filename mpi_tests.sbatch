@@ -10,7 +10,7 @@
 set -uo pipefail
 
 case "$(hostname)" in
-    rostam1|medusa*|buran*)
+    rostam1*|medusa*|buran*)
         module load gcc/14.2.0
         module load openmpi/5.0.5
         ;;
@@ -107,7 +107,7 @@ execute_task() {
                     -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --algorithm="$i" --rpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
-                    --warmup_iterations=3
+                    --warmup_iterations=3 --cooldown_iterations=3
             done
         done
     done
