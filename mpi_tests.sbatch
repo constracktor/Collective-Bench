@@ -57,9 +57,15 @@ executable="$(pwd)/build/mpi/bin/benchmark_collectives_mpi"
 #
 # all_to_all  (mca: alltoall)
 #   1 linear  2 pairwise  3 modified_bruck  4 linear_sync  5 two_proc
+#
+# inclusive_scan  (mca: scan)
+#   1 linear  2 recursive_doubling
+#
+# exclusive_scan  (mca: exscan)
+#   1 linear  2 recursive_doubling
 
 # "<operation> <num_algorithms>" — loops algorithm IDs 0..(n-1)
-pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_reduce 7" "all_to_all 6")
+pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_reduce 7" "all_to_all 6" "inclusive_scan 3" "exclusive_scan 3")
 export PMIX_MCA_gds=hash
 partition=workq
 iterations=10
@@ -85,11 +91,13 @@ execute_task() {
   # silently ignored by OpenMPI.
   local mca_op
   case "$task_name" in
-    broadcast)  mca_op="bcast" ;;
-    all_gather) mca_op="allgather" ;;
-    all_reduce) mca_op="allreduce" ;;
-    all_to_all) mca_op="alltoall" ;;
-    *)          mca_op="$task_name" ;;
+    broadcast)      mca_op="bcast" ;;
+    all_gather)     mca_op="allgather" ;;
+    all_reduce)     mca_op="allreduce" ;;
+    all_to_all)     mca_op="alltoall" ;;
+    inclusive_scan) mca_op="scan" ;;
+    exclusive_scan) mca_op="exscan" ;;
+    *)              mca_op="$task_name" ;;
   esac
 
   for ((i=0; i<count; i++)); do

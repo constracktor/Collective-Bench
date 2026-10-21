@@ -4,10 +4,11 @@ Compile HPX with three parcelports (TCP, MPI, LCI) and benchmark its new
 hierarchical collectives, alongside an MPI reference benchmark for comparison.
 
 Both benchmarks support `broadcast`, `reduce`, `scatter`, `gather`,
-`all_gather`, `all_reduce`, and `all_to_all`; the HPX benchmark additionally
-supports `barrier`, `exclusive_scan`, and `inclusive_scan` (no MPI reference
-equivalent). Both validate correctness on every iteration, and append per-run
-statistics to a `result/` CSV file (semicolon-separated, one header per file).
+`all_gather`, `all_reduce`, `all_to_all`, `inclusive_scan`, and
+`exclusive_scan`; the HPX benchmark additionally supports `barrier` (no MPI
+reference equivalent). Both validate correctness on every iteration, and
+append per-run statistics to a `result/` CSV file (semicolon-separated, one
+header per file).
 
 ## Repository layout
 
@@ -139,6 +140,8 @@ Algorithm `0` = ignore (OpenMPI auto-selects).
 | all_gather | `allgather` | 1 linear, 2 bruck, 3 recursive_doubling, 4 ring, 5 neighbor, 6 two_proc (exactly 2 ranks) |
 | all_reduce | `allreduce` | 1 basic_linear, 2 nonoverlapping, 3 recursive_doubling, 4 ring, 5 segmented_ring, 6 rabenseifner |
 | all_to_all | `alltoall` | 1 linear, 2 pairwise, 3 modified_bruck, 4 linear_sync, 5 two_proc (exactly 2 ranks) |
+| inclusive_scan | `scan` | 1 linear, 2 recursive_doubling |
+| exclusive_scan | `exscan` | 1 linear, 2 recursive_doubling |
 
 `mpi_tests.sbatch` skips the two-process algorithms unless the job has exactly
 two ranks. The MPI benchmark rejects the same invalid combinations when run

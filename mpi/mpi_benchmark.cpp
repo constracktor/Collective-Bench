@@ -1,8 +1,9 @@
 // MPI reference benchmark for collective operations.
 //
 // Times MPI_Bcast, MPI_Reduce, MPI_Scatter, MPI_Gather, MPI_Allgather,
-// MPI_Allreduce, and MPI_Alltoall over a configurable message size and
-// iteration count, validates correctness, and appends per-run statistics
+// MPI_Allreduce, MPI_Alltoall, MPI_Scan, and MPI_Exscan over a configurable
+// message size and iteration count, validates correctness, and appends
+// per-run statistics
 // (mean, variance, stddev, min, max, median) to
 // result/mpi/<collective>/runtimes_<collective>_mpi.txt.
 //
@@ -250,6 +251,8 @@ std::string mca_suffix_for(const std::string& operation) {
     if (operation == "all_gather") return "allgather";
     if (operation == "all_reduce") return "allreduce";
     if (operation == "all_to_all") return "alltoall";
+    if (operation == "inclusive_scan") return "scan";
+    if (operation == "exclusive_scan") return "exscan";
     return operation;
 }
 
@@ -474,6 +477,65 @@ void test_all_to_all(const CollectiveBench& cfg) {
         });
 }
 
+void test_inclusive_scan(const CollectiveBench& cfg) {
+    const int rank = mpi_rank();
+    const int size = mpi_size();
+    std::vector<int> send_data(static_cast<std::size_t>(cfg.test_size), 0);
+    std::vector<int> recv_data(static_cast<std::size_t>(cfg.test_size), 0);
+
+    cfg.run(
+        [&](int i) { std::fill(send_data.begin(), send_data.end(), i); },
+        [&] {
+            MPI_Scan(send_data.data(), recv_data.data(), cfg.test_size, MPI_INT,
+                     MPI_SUM, MPI_COMM_WORLD);
+        },
+        [&](int i) {
+            // Every rank contributes i, so an inclusive scan at rank r sums
+            // r+1 equal contributions.
+            const int expected = (rank + 1) * i;
+            for (int value : recv_data) {
+                if (value != expected) {
+                    std::cerr << "ERROR: inclusive_scan mismatch (size "
+                              << cfg.test_size << ", ranks " << size << ")\n";
+                    break;
+                }
+            }
+        });
+}
+
+void test_exclusive_scan(const CollectiveBench& cfg) {
+    const int rank = mpi_rank();
+    const int size = mpi_size();
+    std::vector<int> send_data(static_cast<std::size_t>(cfg.test_size), 0);
+    std::vector<int> recv_data(static_cast<std::size_t>(cfg.test_size), 0);
+
+    cfg.run(
+        [&](int i) { std::fill(send_data.begin(), send_data.end(), i); },
+        [&] {
+            MPI_Exscan(send_data.data(), recv_data.data(), cfg.test_size, MPI_INT,
+                       MPI_SUM, MPI_COMM_WORLD);
+        },
+        [&](int i) {
+            // Rank 0's recv_data is left undefined by MPI_Exscan; every other
+            // rank r sums the r contributions before it (each equal to i).
+            // Deliberately "rank == 0", not kRoot: kRoot names the root of a
+            // rooted collective, but MPI_Exscan has no root -- rank 0 is
+            // special because of scan order, a different concept that only
+            // happens to share the same value here.
+            if (rank == 0) {
+                return;
+            }
+            const int expected = rank * i;
+            for (int value : recv_data) {
+                if (value != expected) {
+                    std::cerr << "ERROR: exclusive_scan mismatch (size "
+                              << cfg.test_size << ", ranks " << size << ")\n";
+                    break;
+                }
+            }
+        });
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
@@ -496,7 +558,7 @@ int main(int argc, char** argv) {
          cxxopts::value<int>()->default_value("3"))
         ("t,test_size", "Number of ints sent per rank",
          cxxopts::value<int>()->default_value("1"))
-        ("operation", "Collective to run: broadcast|reduce|scatter|gather|all_gather|all_reduce|all_to_all",
+        ("operation", "Collective to run: broadcast|reduce|scatter|gather|all_gather|all_reduce|all_to_all|inclusive_scan|exclusive_scan",
          cxxopts::value<std::string>()->default_value("scatter"))
         ("h,help", "Print usage");
 
@@ -538,10 +600,14 @@ int main(int argc, char** argv) {
             test_all_reduce(cfg);
         } else if (cfg.name == "all_to_all") {
             test_all_to_all(cfg);
+        } else if (cfg.name == "inclusive_scan") {
+            test_inclusive_scan(cfg);
+        } else if (cfg.name == "exclusive_scan") {
+            test_exclusive_scan(cfg);
         } else {
             if (mpi_rank() == kRoot) {
                 std::cerr << "Unknown operation: " << cfg.name
-                          << " (expected broadcast|reduce|scatter|gather|all_gather|all_reduce|all_to_all)\n";
+                          << " (expected broadcast|reduce|scatter|gather|all_gather|all_reduce|all_to_all|inclusive_scan|exclusive_scan)\n";
             }
             exit_code = 1;
         }

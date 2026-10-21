@@ -48,7 +48,7 @@ jobs:
       - name: Smoke test (run each collective on 2 ranks)
         run: |
           bin=build/mpi/bin/benchmark_collectives_mpi
-          for op in broadcast reduce scatter gather; do
+          for op in broadcast reduce scatter gather inclusive_scan exclusive_scan; do
             echo "::group::$op"
             mpirun --oversubscribe -np 2 "$bin" \
               --operation="$op" --test_size=16 --iterations=5 --rpn=2
@@ -61,4 +61,6 @@ jobs:
           test -n "$(find result/mpi -name 'runtimes_reduce_mpi.txt')"
           test -n "$(find result/mpi -name 'runtimes_scatter_mpi.txt')"
           test -n "$(find result/mpi -name 'runtimes_gather_mpi.txt')"
+          test -n "$(find result/mpi -name 'runtimes_inclusive_scan_mpi.txt')"
+          test -n "$(find result/mpi -name 'runtimes_exclusive_scan_mpi.txt')"
           find result/mpi -name 'runtimes_*_mpi.txt' -exec cat {} \;
