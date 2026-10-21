@@ -20,7 +20,7 @@ header per file).
 | `mpi/CMakeLists.txt` | CMake build for the MPI benchmark. |
 | `run.sh` | Submit all HPX + MPI job combinations (parcelports × node counts) in one shot. |
 | `hpx_tests.sbatch` | SLURM batch sweep for HPX (parcelport and node count as CLI args). |
-| `mpi_tests.sbatch` | SLURM batch sweep for MPI (node count as CLI arg). |
+| `mpi_tests.sbatch` | SLURM batch sweep for MPI (node count as CLI arg); currently algorithm 0 (OpenMPI's automatic choice) only. |
 | `hpx_quick_tests.sbatch` | Quick HPX smoke sweep: all operations × arities, one problem size, 2 nodes, ~1 minute. |
 | `mpi_quick_tests.sbatch` | Quick MPI smoke sweep: all algorithms, one problem size, 2 nodes, ~1 minute. |
 | `logs/`, `result/` | Job logs and benchmark output (git-ignored). |

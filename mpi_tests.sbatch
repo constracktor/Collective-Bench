@@ -64,12 +64,14 @@ executable="$(pwd)/build/mpi/bin/benchmark_collectives_mpi"
 # exclusive_scan  (mca: exscan)
 #   1 linear  2 recursive_doubling
 
-# "<operation> <num_algorithms>" — loops algorithm IDs 0..(n-1)
-pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_reduce 7" "all_to_all 6" "inclusive_scan 3" "exclusive_scan 3")
+# "<operation> <num_algorithms>" — loops algorithm IDs 0..(n-1). Restricted to
+# just algorithm 0 (OpenMPI's own auto-selected/tuned choice) here, not a full
+# per-algorithm sweep.
+pairs=("broadcast 1" "reduce 1" "scatter 1" "gather 1" "all_gather 1" "all_reduce 1" "all_to_all 1" "inclusive_scan 1" "exclusive_scan 1")
 export PMIX_MCA_gds=hash
 partition=workq
-iterations=10
-loop=1
+iterations=1000
+loop=10
 
 # Parse command-line arguments
 nodes=1  # default; override with --nodes=<n>
@@ -108,10 +110,18 @@ execute_task() {
             echo "Skipping $task_name algorithm $i: two_proc requires exactly 2 ranks"
             continue
         fi
-        for test_size in 1 4 16 64 256 1024 4096 16384; do
+        for test_size in 1 4 16 64 256 1024 4096 16384 65536; do
             for (( j=0; j<loop; j++ )); do
-                srun --mpi=pmix --time=0:10:00 --cpu-bind=none \
-                    --export=ALL,OMPI_MCA_coll_tuned_use_dynamic_rules=1,OMPI_MCA_coll_tuned_${mca_op}_algorithm=$i \
+                # --cpu-bind=core (not none) and mpi_yield_when_idle=0: without
+                # these, ranks waiting on a collective can get OS-migrated or
+                # fall back to sched_yield()-based polling, which only gets
+                # rescheduled at ~1ms OS-tick granularity. At 8+ nodes this
+                # compounds into a sustained multi-millisecond congestion
+                # regime that dominates a long run instead of averaging out
+                # (reproduced/fixed via a per-iteration dump on reduce/16
+                # nodes/size=4: median 4.0ms -> 17us with these flags).
+                srun --mpi=pmix --time=0:10:00 --cpu-bind=core \
+                    --export=ALL,OMPI_MCA_coll_tuned_use_dynamic_rules=1,OMPI_MCA_coll_tuned_${mca_op}_algorithm=$i,OMPI_MCA_mpi_yield_when_idle=0 \
                     -N "$nodes" --ntasks-per-node "$rpn" -c 1 \
                     "$executable" --algorithm="$i" --rpn="$rpn" --operation="$task_name" \
                     --test_size="$test_size" --iterations="$iterations" \
