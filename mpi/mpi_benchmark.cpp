@@ -161,11 +161,13 @@ void write_to_file(const std::string& collective, const std::string& module,
 //   check(i)      - correctness validation
 //
 // Timing is identical for every collective so the numbers are directly
-// comparable: each iteration starts from a shared MPI_Barrier, times only the
-// collective call (no trailing barrier inside the timed region), and reduces
-// the per-rank elapsed time with MPI_MAX onto root. The max captures the
-// slowest rank's latency, i.e. when the operation is actually complete for the
-// whole job — meaningful for both symmetric and asymmetric collectives.
+// comparable: each iteration starts from a shared MPI_Barrier and times only
+// the collective call (no trailing barrier or reduce inside the timed
+// region). Every rank's per-iteration elapsed times are reduced with
+// MPI_MAX onto root in a single call after all iterations finish, off the
+// measured path. The max captures the slowest rank's latency, i.e. when the
+// operation is actually complete for the whole job — meaningful for both
+// symmetric and asymmetric collectives.
 struct CollectiveBench {
     std::string name;
     std::string module;
@@ -199,18 +201,33 @@ struct CollectiveBench {
             collective();
             const double t_elapsed = MPI_Wtime() - t_before;
 
-            // Reduce the elapsed time with MPI_MAX so root records the slowest
-            // rank's latency. Applied uniformly to all collectives so their
-            // measurements are comparable. Done outside the timed region.
-            double t_record = t_elapsed;
-            MPI_Reduce(rank == kRoot ? MPI_IN_PLACE : &t_elapsed, &t_record,
-                       1, MPI_DOUBLE, MPI_MAX, kRoot, MPI_COMM_WORLD);
-
-            if (rank == kRoot) {
-                result[static_cast<std::size_t>(i)] = t_record;
-            }
+            // Elapsed time stays local; reduced once after the loop, off the
+            // measured path (see below) -- avoids a per-iteration blocking
+            // rendezvous that can absorb transient OS/scheduling jitter on
+            // one rank and leak it into a later iteration's timing.
+            result[static_cast<std::size_t>(i)] = t_elapsed;
             check(i);
         }
+
+        // Diagnostic-only: dump every rank's raw per-iteration times, unreduced,
+        // so a bimodal/sticky slowdown can be told apart from independent
+        // per-rank noise. Off by default; not part of the measured harness.
+        if (const char* dump_dir = std::getenv("MPIBENCH_DUMP_ITERS")) {
+            std::ofstream out(std::string(dump_dir) + "/rank_" +
+                               std::to_string(rank) + ".csv");
+            for (int i = 0; i < iterations; ++i) {
+                out << i << ',' << result[static_cast<std::size_t>(i)] << '\n';
+            }
+        }
+
+        // Reduce every iteration's elapsed time with MPI_MAX in one call so
+        // root ends up with the slowest rank's latency per iteration, i.e.
+        // when the operation is actually complete for the whole job --
+        // meaningful for both symmetric and asymmetric collectives. Matches
+        // the fix already applied to the HPX benchmark's flat collectives.
+        MPI_Reduce(rank == kRoot ? MPI_IN_PLACE : result.data(), result.data(),
+                   static_cast<int>(result.size()), MPI_DOUBLE, MPI_MAX, kRoot,
+                   MPI_COMM_WORLD);
 
         // Untimed cooldown — mirrors warmup, run after the timed iterations
         // so the last timed iteration isn't itself a straggler (ranks can
