@@ -157,6 +157,10 @@ Timing records the **slowest rank's latency** per iteration (via `MPI_MAX`
 reduction) so all collectives are measured on the same basis and results are
 directly comparable.
 
+## License
+
+Distributed under the Boost Software License, Version 1.0 (see [`LICENSE`](LICENSE)).
+
 ## Contact
 
 alexander.strack@ipvs.uni-stuttgart.de
