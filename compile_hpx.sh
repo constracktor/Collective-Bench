@@ -26,12 +26,7 @@ export CXX=g++
 
 BUILD_TYPE=Release
 CMAKE_COMMAND=cmake
-#HPX_VERSION=master
-# Based on real upstream STEllAR-GROUP/hpx:master (not this fork's own,
-# unsynced master) -- forward-ports 4 hardening fixes onto the collectives
-# benchmark that's already merged upstream (warmup/full stats/parcelport-path
-# already present there; this fork's own master lacked all of that).
-HPX_VERSION=harden-collective-benchmark-v2
+HPX_VERSION=master
 TCP=ON
 MPI=ON
 LCI=ON
@@ -46,8 +41,7 @@ DIR_BUILD=${ROOT}/build/hpx
 DIR_INSTALL=${DIR_INSTALL:-${DIR_BUILD}/install}
 
 #DOWNLOAD_URL="git@github.com:STEllAR-GROUP/hpx.git"
-#DOWNLOAD_URL="https://github.com/STEllAR-GROUP/hpx.git"
-DOWNLOAD_URL="https://github.com/constracktor/hpx.git"
+DOWNLOAD_URL="https://github.com/STEllAR-GROUP/hpx.git"
 
 # Clone HPX if not present
 if [[ ! -d ${DIR_SRC} ]]; then
