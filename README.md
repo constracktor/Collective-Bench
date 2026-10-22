@@ -1,38 +1,56 @@
-# Benchmark collectives
+# Collective-Bench
 
-Compile HPX with three parcelports (TCP, MPI, LCI) and benchmark its new
-hierarchical collectives, alongside an MPI reference benchmark for comparison.
+A benchmarking harness that compares HPX's hierarchical collectives, over the
+TCP, MPI and LCI parcelports, against an MPI reference implementation
+(OpenMPI 5.0.x) on SLURM clusters.
 
 Both benchmarks support `broadcast`, `reduce`, `scatter`, `gather`,
-`all_gather`, `all_reduce`, `all_to_all`, `inclusive_scan`, and
-`exclusive_scan`; the HPX benchmark additionally supports `barrier` (no MPI
-reference equivalent). Both validate correctness on every iteration, and
-append per-run statistics to a `result/` CSV file (semicolon-separated, one
-header per file).
+`all_gather`, `all_reduce`, `all_to_all`, `inclusive_scan` (`MPI_Scan`), and
+`exclusive_scan` (`MPI_Exscan`); the HPX benchmark additionally supports
+`barrier` (no MPI reference equivalent). Both validate correctness on every
+iteration and append per-run statistics to a semicolon-separated file under
+`result/` (one header per file).
+
+Only the MPI reference benchmark's source lives in this repo. The HPX
+benchmark (`libs/full/collectives/tests/performance/benchmark_collectives.cpp`)
+is part of upstream HPX and is built from a clone made by `compile_hpx.sh`.
 
 ## Repository layout
 
 | Path | Purpose |
 | --- | --- |
-| `compile_hpx.sh` | Clone and build HPX + the collectives benchmark target. |
+| `compile_hpx.sh` | Clone upstream HPX (`STEllAR-GROUP/hpx`, `master`) and build the collectives benchmark target. |
 | `compile_mpi.sh` | Build the MPI reference benchmark via CMake. |
 | `mpi/mpi_benchmark.cpp` | MPI reference benchmark source. |
 | `mpi/CMakeLists.txt` | CMake build for the MPI benchmark. |
-| `run.sh` | Submit all HPX + MPI job combinations (parcelports × node counts) in one shot. |
+| `run.sh` | Submit the full HPX sweep (parcelports × node counts) in one shot. |
 | `hpx_tests.sbatch` | SLURM batch sweep for HPX (parcelport and node count as CLI args). |
 | `mpi_tests.sbatch` | SLURM batch sweep for MPI (node count as CLI arg); currently algorithm 0 (OpenMPI's automatic choice) only. |
 | `hpx_quick_tests.sbatch` | Quick HPX smoke sweep: all operations × arities, one problem size, 2 nodes, ~1 minute. |
 | `mpi_quick_tests.sbatch` | Quick MPI smoke sweep: all algorithms, one problem size, 2 nodes, ~1 minute. |
+| `.github/workflows/ci.yml` | CI: builds and smoke-tests the MPI benchmark. |
+| `LICENSE` | Boost Software License 1.0. |
 | `logs/`, `result/` | Job logs and benchmark output (git-ignored). |
 
 ## Requirements
 
-- `gcc/14.2.0` and `openmpi/5.0.5` on rostam/medusa (loaded via `module load`)
+- `gcc/14.2.0` and `openmpi/5.0.5` on rostam/medusa/buran (loaded via `module load`)
 - `gcc@14.3.0` and `openmpi@5.0.10` on qbd (loaded via `spack load`)
 - CMake ≥ 3.16
 - [`cxxopts`](https://github.com/jarro2783/cxxopts) — used by the MPI benchmark.
   Found via `find_package` if installed, otherwise fetched automatically during
   the CMake configure step.
+
+The build and sbatch scripts pick modules by `hostname` and abort on an
+unknown host.
+
+## Quick start
+
+```
+./compile_mpi.sh && ./compile_hpx.sh      # build both benchmarks
+./run.sh                                  # submit the HPX sweep
+sbatch --nodes=4 mpi_tests.sbatch --nodes=4   # submit one MPI sweep (add --partition=...)
+```
 
 ## How to compile
 
@@ -42,16 +60,25 @@ HPX benchmark: `./compile_hpx.sh`
 MPI benchmark: `./compile_mpi.sh`
 → produces `build/mpi/bin/benchmark_collectives_mpi`
 
+`compile_hpx.sh` only clones into `hpx/` and configures `build/hpx/` if those
+directories don't exist yet. To pick up a newer HPX `master` (or switch an
+existing clone to upstream), update or remove `hpx/` and remove `build/hpx/`
+before rerunning it.
+
 ## How to run
 
-### All jobs at once
+### All HPX jobs at once
 
 ```
 ./run.sh
 ```
 
-Submits HPX (tcp, mpi, lci) × MPI reference for node counts 1, 2, 4 — one
-sbatch job per combination. Logs land in `logs/output_<jobid>.log` and
+Submits one `hpx_tests.sbatch` job per (parcelport, node count): `mpi` and
+`tcp` at 1, 2, 4, 8, 16 nodes, `lci` at 1, 2, 4, 8 nodes (see the comment in
+`run.sh` for why LCI is capped). The SLURM partition is chosen from the
+hostname (rostam1/buran → `buran`, medusa → `medusa`, qbd → `workq`). `run.sh`
+does **not** submit the MPI reference sweep; submit `mpi_tests.sbatch`
+separately (see below). Logs land in `logs/output_<jobid>.log` and
 `logs/error_<jobid>.log`.
 
 ### Quick smoke sweep
@@ -61,12 +88,13 @@ sbatch --partition=buran mpi_quick_tests.sbatch
 sbatch --partition=buran hpx_quick_tests.sbatch --parcelport=tcp
 ```
 
-Every algorithm/arity combination for every collective, at a single
-representative problem size (`test_size=256`) with minimal iterations and no
-repeats, fixed at 2 nodes. Meant to finish in about a minute and sanity-check
-that every combination still runs and validates correctly — not to produce
-statistically meaningful timings. Use `mpi_tests.sbatch`/`hpx_tests.sbatch`
-for the full sweep.
+At a single representative problem size (`test_size=256`) with minimal
+iterations and no repeats, fixed at 2 nodes × 32 ranks. The HPX script runs
+every operation (including `barrier`) at arities -1 and 2; the MPI script runs
+every algorithm ID of the seven non-scan collectives. Meant to finish in
+about a minute and sanity-check that every combination still runs and
+validates correctly — not to produce statistically meaningful timings. Use
+`mpi_tests.sbatch`/`hpx_tests.sbatch` for the full sweep.
 
 ### Manually
 
@@ -88,20 +116,31 @@ doesn't support the `MPI_THREAD_MULTIPLE` level HPX requests by default,
 which otherwise silently falls back to a slower transport and can segfault
 under load. Disabling it costs nothing here since every locality only gets
 one HPX worker thread anyway (`-c 1`), so there's no concurrent MPI access to
-serialize. `hpx_tests.sbatch`/`hpx_quick_tests.sbatch` already set this.
+serialize. `hpx_tests.sbatch`/`hpx_quick_tests.sbatch` already set this. For
+`lci`, `hpx_tests.sbatch` also sets `--hpx:ini=hpx.parcel.lci.ndevices=1`,
+`LCI_ATTR_ALLOC_DEFAULT_DEVICE=0` and `LCI_ATTR_NET_MAX_RECVS=65536` (needed
+at 256+ ranks; see the comments in the script).
 
 MPI benchmark:
 
 ```
-srun --mpi=pmix --export=ALL,OMPI_MCA_coll_tuned_use_dynamic_rules=1,OMPI_MCA_coll_tuned_reduce_algorithm=1 \
+srun --mpi=pmix --cpu-bind=core \
+    --export=ALL,OMPI_MCA_coll_tuned_use_dynamic_rules=1,OMPI_MCA_coll_tuned_reduce_algorithm=1,OMPI_MCA_mpi_yield_when_idle=0 \
     -p medusa -N 2 --ntasks-per-node 2 -c 1 \
     build/mpi/bin/benchmark_collectives_mpi \
     --algorithm=1 --rpn=2 --operation=reduce --test_size=1024 --iterations=10
 ```
 
-Note: OpenMPI's tuned component uses `bcast`/`allgather`/`allreduce`/`alltoall`
-as the MCA parameter suffix even though the benchmark uses `broadcast`/`all_gather`
-etc. as operation names.
+Options: `--operation`, `--test_size` (ints per rank), `--iterations`,
+`--warmup_iterations` (default 3), `--cooldown_iterations` (default 3, untimed
+rounds after the timed ones), `--rpn` (ranks per node, used for the `nodes`
+column), `--algorithm` (recorded in the output path/column; the benchmark
+warns if it doesn't match the `OMPI_MCA_coll_tuned_*` env vars), and
+`--module` (label for the `module` column, default `tuned`).
+
+Note: OpenMPI's tuned component uses `bcast`/`allgather`/`allreduce`/`alltoall`/`scan`/`exscan`
+as the MCA parameter suffix even though the benchmark uses `broadcast`/`all_gather`/…/`inclusive_scan`/`exclusive_scan`
+as operation names. An unmapped MCA name is silently ignored by OpenMPI.
 
 ### Sbatch scripts
 
@@ -114,17 +153,40 @@ sbatch --nodes=4 --partition=medusa mpi_tests.sbatch --nodes=4
 
 The `--nodes=` flag must be passed both to `sbatch` (for resource allocation)
 and as a script argument (so the benchmark knows the topology). Both scripts'
-`#SBATCH --partition=workq` default only applies to qbd; on rostam1/medusa*
-pass `--partition=medusa`, on buran* pass `--partition=buran`. `run.sh` handles
-both the `--nodes=` duplication and the partition selection automatically.
+`#SBATCH --partition=workq` default only applies to qbd; on medusa pass
+`--partition=medusa`, on rostam1/buran pass `--partition=buran`. `run.sh`
+handles both the `--nodes=` duplication and the partition selection
+automatically for the HPX jobs.
 
-## Output
+## Sweep details
 
-Results are written to:
+Both full sweeps use 32 ranks/localities per node, one core each, and sizes
+1 4 16 64 256 1024 4096 16384 65536 (ints per rank), with 3 warmup and 3
+cooldown iterations per run.
 
-- HPX: `result/hpx/<parcelport>/<num_localities>/<collective>/runtimes_<collective>_<variant>.txt`
-  where `<variant>` is the collective implementation (e.g. `single_use`, `multi_use`, `hierarchical_2`)
-- MPI: `result/mpi/<num_ranks>/<collective>/<algorithm>/runtimes_<collective>_mpi.txt`
+`hpx_tests.sbatch`: every collective except `barrier`, arities -1, 2, 8
+(`--arities=4,8,16` to override), 10 timed iterations per run, each run
+repeated 10× (20× for `lci`; `--loop=<n>` to override). `--rpn=<n>` changes
+localities per node (also pass `--ntasks-per-node=<n>` to `sbatch`).
+
+`mpi_tests.sbatch`: all nine collectives, algorithm 0 only (OpenMPI's
+automatic choice), 1000 timed iterations per run, each run repeated 10×.
+Runs use `--cpu-bind=core` and `OMPI_MCA_mpi_yield_when_idle=0`; without them
+waiting ranks can be migrated or fall back to `sched_yield()` polling, which
+at 8+ nodes compounds into a sustained multi-millisecond slowdown (reduce,
+16 nodes, size 4: median 4.0 ms without them, 17 µs with them). To sweep specific
+algorithms, raise the counts in the script's `pairs` array (it loops IDs
+`0..count-1`) using the table below.
+
+### MPI timing
+
+Each timed iteration starts from an `MPI_Barrier` and times only the
+collective call. Per-iteration elapsed times stay local during the loop and
+are reduced once with `MPI_MAX` onto root after the loop, so each recorded
+iteration is the **slowest rank's latency**. Setting
+`MPIBENCH_DUMP_ITERS=<dir>` additionally dumps every rank's raw,
+unreduced per-iteration times to `<dir>/rank_<n>.csv` (diagnostic only, off by
+default; the directory must exist).
 
 ### MPI algorithm IDs (OpenMPI 5.x coll/tuned, verified against v5.0.5 and v5.0.10)
 
@@ -147,15 +209,58 @@ Algorithm `0` = ignore (OpenMPI auto-selects).
 two ranks. The MPI benchmark rejects the same invalid combinations when run
 manually.
 
-Both formats use the same semicolon-separated columns:
+### OpenMPI's HAN component
+
+OpenMPI 5.x ships the hierarchical `coll/han` component with default priority
+35, above `coll/tuned`'s 30. On multi-node runs HAN can therefore serve
+`bcast`, `reduce`, `allreduce`, `allgather`, `gather` and `scatter`, in which
+case the `OMPI_MCA_coll_tuned_<op>_algorithm` settings above do not apply as
+intended. Check which component is used with `OMPI_MCA_coll_base_verbose=9`,
+which logs `coll:han:get_algorithm` lines when HAN is selected. The scripts in
+this repo do not change the priorities, so the default sweep measures
+OpenMPI's default behavior.
+
+For a tuned-only baseline, disable HAN (and UCC, if your OpenMPI is built with
+it) by adding the following to the `srun --export=` list:
+
+```
+OMPI_MCA_coll_han_priority=0,OMPI_MCA_coll_ucc_priority=0
+```
+
+Results from the two configurations are not comparable; keep them in separate
+result trees.
+
+## Output
+
+Results are written to:
+
+- HPX: `result/hpx/<parcelport>/<num_localities>/<collective>/runtimes_<collective>_<variant>.txt`
+  where `<variant>` is the collective implementation (e.g. `single_use`, `multi_use`, `hierarchical_2`)
+- MPI: `result/mpi/<num_ranks>/<collective>/<algorithm>/runtimes_<collective>_mpi.txt`
+
+Both are semicolon-separated with a single header line per file. MPI columns:
 
 ```
 collective;module;algorithm;nodes;ranks;rpn;size;warmup;iterations;mean;variance;stddev;min;max;median
 ```
 
-Timing records the **slowest rank's latency** per iteration (via `MPI_MAX`
-reduction) so all collectives are measured on the same basis and results are
-directly comparable.
+HPX columns (as written by the upstream HPX benchmark):
+
+```
+collective;type;arity;nodes;localities;lpn;threads;size;warmup;cooldown;iterations;mean;variance;stddev;min;max;median
+```
+
+The MPI `module` column is just the `--module` label (default `tuned`, which
+the scripts never override); it does not reflect which coll component
+actually ran (see the HAN caveat above).
+
+## CI
+
+`.github/workflows/ci.yml` builds only the MPI benchmark (no HPX, no SLURM),
+checks that the two-process algorithms are accepted on 2 ranks and rejected on
+4 with the expected error, smoke-runs `broadcast`, `reduce`, `scatter`,
+`gather`, `inclusive_scan` and `exclusive_scan` on 2 ranks, and checks that
+each wrote its `runtimes_<op>_mpi.txt`.
 
 ## License
 
