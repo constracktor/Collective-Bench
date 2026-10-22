@@ -230,6 +230,33 @@ OMPI_MCA_coll_han_priority=0,OMPI_MCA_coll_ucc_priority=0
 Results from the two configurations are not comparable; keep them in separate
 result trees.
 
+### LCI at 500+ localities
+
+Out of the box, HPX's LCI parcelport failed with roughly 500 or more
+localities, for three independent reasons. `patches/hpx-lci-scale.patch`
+(applied by `compile_hpx.sh` after cloning) fixes them inside HPX; the
+sweep scripts no longer need any `LCI_ATTR_*` environment variables for this.
+
+- **Queue pair resources.** LCI opens one InfiniBand queue pair per remote
+  locality and device and, by default, one thread domain per queue pair.
+  Those run out at ~480-500 per process (`ibv_alloc_td() failed`, then
+  `Couldn't create QP`). The parcelport now disables LCI's unused default
+  device, switches to shared queue locks above 128 connections per process,
+  scales the shared receive queue with the number of localities, and reduces
+  `hpx.parcel.lci.ndevices` so a process keeps at most
+  `hpx.parcel.lci.max_qps_per_process` (default 256; `0` disables the cap)
+  connections. Explicit `LCI_ATTR_*` variables still take precedence.
+- **Startup time.** LCI exchanged the queue pair addresses through the PMIx
+  key-value store, which moves O(N^3) bytes in total: 31 s at 256 ranks,
+  254 s at 384 ranks, and not finishing at 512. HPX now builds LCI with its MPI
+  bootstrap backend (`HPX_WITH_LCI_BOOTSTRAP_MPI`, on by default with the MPI
+  parcelport; the cmake variable that selects it was misnamed before) and
+  patches LCI to use a real `MPI_Alltoall` for the exchange. Override with
+  `LCT_PMI_BACKEND=pmix` at runtime. The PMIx path additionally no longer
+  calls `PMIx_Commit` once per published key.
+- **Patch handling.** Both LCI changes are patch files under `hpx/cmake/patches`
+  that HPX's cmake applies to the fetched LCI sources.
+
 ## Output
 
 Results are written to:

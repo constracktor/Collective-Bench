@@ -26,7 +26,9 @@ export CXX=g++
 
 BUILD_TYPE=Release
 CMAKE_COMMAND=cmake
-HPX_VERSION=master
+# Upstream commit the patches in patches/ apply to (2026-10-21 master). Use
+# `master` instead if the patches have been merged upstream or still apply.
+HPX_VERSION=6456abf559aeaa05b7a1612d8f8dc59c8d6df511
 TCP=ON
 MPI=ON
 LCI=ON
@@ -50,6 +52,11 @@ if [[ ! -d ${DIR_SRC} ]]; then
       cd ${DIR_SRC}
       git clone ${DOWNLOAD_URL} .
       git checkout ${HPX_VERSION}
+      # Local fixes to HPX's LCI parcelport/bootstrap that make runs with 500+
+      # localities work (see README.md, "LCI at 500+ localities").
+      for patch in "${ROOT}"/patches/hpx-*.patch; do
+          git apply "${patch}"
+      done
     )
 fi
 # Create build directory if not present

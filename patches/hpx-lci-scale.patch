@@ -1,0 +1,384 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 5784084a41..b1444895e6 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1375,10 +1375,18 @@ if(HPX_WITH_NETWORKING)
+     CATEGORY "Build Targets"
+     ADVANCED
+   )
++  # LCI's default PMIx bootstrap exchanges all queue pair addresses through the
++  # PMIx key-value store, which moves O(N^3) bytes in total and takes many
++  # minutes at ~400 localities. The MPI bootstrap backend uses a real
++  # MPI_Alltoall instead, so enable it whenever MPI is available anyway.
++  set(hpx_lci_bootstrap_mpi_default OFF)
++  if(HPX_WITH_PARCELPORT_MPI)
++    set(hpx_lci_bootstrap_mpi_default ON)
++  endif()
+   hpx_option(
+     HPX_WITH_LCI_BOOTSTRAP_MPI BOOL
+-    "Configure the autofetched LCI with mpi bootstrap support (default: OFF)"
+-    OFF
++    "Configure the autofetched LCI with mpi bootstrap support (default: ON if the MPI parcelport is enabled, OFF otherwise)"
++    ${hpx_lci_bootstrap_mpi_default}
+     CATEGORY "Build Targets"
+     ADVANCED
+   )
+diff --git a/cmake/HPX_SetupLCI.cmake b/cmake/HPX_SetupLCI.cmake
+index 077b49e069..15297fa282 100644
+--- a/cmake/HPX_SetupLCI.cmake
++++ b/cmake/HPX_SetupLCI.cmake
+@@ -7,6 +7,52 @@
+ # FIXME : in the future put it directly inside the cmake directory of the
+ # corresponding plugin
+ 
++# Directory holding the local patches applied to the fetched LCI sources
++set(HPX_LCI_PATCH_DIR ${CMAKE_CURRENT_LIST_DIR}/patches)
++
++# Apply every patches/lci-*.patch to the fetched LCI source tree. Idempotent:
++# a patch that is already applied (e.g. when re-configuring an existing build
++# tree) is skipped.
++function(hpx_apply_lci_patches lci_source_dir)
++  find_package(Git QUIET)
++  file(GLOB lci_patches ${HPX_LCI_PATCH_DIR}/lci-*.patch)
++  foreach(patch ${lci_patches})
++    get_filename_component(patch_name ${patch} NAME)
++    if(NOT GIT_FOUND)
++      message(
++        WARNING
++          "git not found, cannot apply ${patch_name} to the fetched LCI sources"
++      )
++    else()
++      execute_process(
++        COMMAND ${GIT_EXECUTABLE} apply --check --reverse ${patch}
++        WORKING_DIRECTORY ${lci_source_dir}
++        RESULT_VARIABLE already_applied
++        OUTPUT_QUIET ERROR_QUIET
++      )
++      if(already_applied EQUAL 0)
++        hpx_info("LCI patch ${patch_name} is already applied")
++      else()
++        execute_process(
++          COMMAND ${GIT_EXECUTABLE} apply ${patch}
++          WORKING_DIRECTORY ${lci_source_dir}
++          RESULT_VARIABLE apply_result
++          ERROR_VARIABLE apply_error
++        )
++        if(apply_result EQUAL 0)
++          hpx_info("Applied LCI patch ${patch_name}")
++        else()
++          message(
++            WARNING
++              "Could not apply ${patch_name} to the fetched LCI sources "
++              "(different LCI version?): ${apply_error}"
++          )
++        endif()
++      endif()
++    endif()
++  endforeach()
++endfunction()
++
+ macro(hpx_setup_lci)
+   if(NOT TARGET LCI::LCI)
+ 
+@@ -51,13 +97,22 @@ macro(hpx_setup_lci)
+       fetchcontent_getproperties(lci)
+       if(NOT lci_POPULATED)
+         fetchcontent_populate(lci)
+-        if(NOT LCT_PMI_BACKEND_ENABLE_MPI AND HPX_WITH_LCI_BOOTSTRAP_MPI)
++        hpx_apply_lci_patches(${lci_SOURCE_DIR})
++        # (set unconditionally, not only on the first configure, so that
++        # re-configuring an existing build tree picks up the settings too)
++        if(HPX_WITH_LCI_BOOTSTRAP_MPI)
+           # Configure LCI with MPI bootstrap support
+           set(LCT_PMI_BACKEND_ENABLE_MPI
+               ON
+               CACHE INTERNAL ""
+           )
+-          # Set MPI as the first PMI backend to try
++          # Set MPI as the first PMI backend to try. The option consumed by
++          # LCI's LCT library is LCT_PMI_BACKEND_DEFAULT; LCI_PMI_BACKEND_DEFAULT
++          # is kept for older LCI versions.
++          set(LCT_PMI_BACKEND_DEFAULT
++              "mpi;pmix;pmi2;pmi1;file;local"
++              CACHE INTERNAL ""
++          )
+           set(LCI_PMI_BACKEND_DEFAULT
+               "mpi;pmix;pmi2;pmi1;file;local"
+               CACHE INTERNAL ""
+diff --git a/cmake/patches/lci-mpi-alltoall-bootstrap.patch b/cmake/patches/lci-mpi-alltoall-bootstrap.patch
+new file mode 100644
+index 0000000000..baab049d4c
+--- /dev/null
++++ b/cmake/patches/lci-mpi-alltoall-bootstrap.patch
+@@ -0,0 +1,115 @@
++diff --git a/lct/api/lct.h b/lct/api/lct.h
++index 988aa333..54c272fc 100644
++--- a/lct/api/lct.h
+++++ b/lct/api/lct.h
++@@ -188,6 +188,12 @@ LCT_API int LCT_pmi_get_size();
++ LCT_API void LCT_pmi_publish(char* key, char* value);
++ LCT_API void LCT_pmi_getname(int rank, char* key, char* value);
++ LCT_API void LCT_pmi_barrier();
+++// Exchange `size` bytes between every pair of ranks: on return, the block that
+++// rank j passed for this rank (sendbuf + me * size on rank j) is stored at
+++// recvbuf + j * size. Returns 1 if the active PMI backend provides a native
+++// collective for this and the exchange was done, 0 if it does not (the caller
+++// must then fall back to publish/barrier/getname).
+++LCT_API int LCT_pmi_alltoall(const void* sendbuf, void* recvbuf, size_t size);
++ LCT_API void LCT_pmi_finalize();
++ 
++ // Args Parsing
++diff --git a/lct/pmi/pmi_wrapper.cpp b/lct/pmi/pmi_wrapper.cpp
++index eb99960a..e2a47e9a 100644
++--- a/lct/pmi/pmi_wrapper.cpp
+++++ b/lct/pmi/pmi_wrapper.cpp
++@@ -21,6 +21,8 @@ void LCT_pmi_initialize()
++   char* rest = str;
++   bool found_valid_backend = false;
++   while ((word = strtok_r(rest, " ;,", &rest))) {
+++    // only a backend that provides a native alltoall sets this
+++    lcti_pmi_ops.alltoall = nullptr;
++     if (strcmp(word, "local") == 0) {
++       lct::pmi::local_setup_ops(&lcti_pmi_ops);
++     } else if (strcmp(word, "file") == 0) {
++@@ -104,4 +106,10 @@ void LCT_pmi_barrier()
++   lcti_pmi_ops.barrier();
++   LCT_Log(LCT_log_ctx_default, LCT_LOG_DEBUG, "pmi", "leave pmi barrier\n");
++ }
+++int LCT_pmi_alltoall(const void* sendbuf, void* recvbuf, size_t size)
+++{
+++  if (lcti_pmi_ops.alltoall == nullptr)
+++    return 0;
+++  return lcti_pmi_ops.alltoall(sendbuf, recvbuf, size);
+++}
++ void LCT_pmi_finalize() { lcti_pmi_ops.finalize(); }
++\ No newline at end of file
++diff --git a/lct/pmi/pmi_wrapper.hpp b/lct/pmi/pmi_wrapper.hpp
++index 570a74fc..0fcb66b2 100644
++--- a/lct/pmi/pmi_wrapper.hpp
+++++ b/lct/pmi/pmi_wrapper.hpp
++@@ -16,6 +16,8 @@ struct ops_t {
++   void (*getname)(int rank, char* key, char* value);
++   void (*barrier)();
++   void (*finalize)();
+++  // Optional native alltoall (nullptr if the backend has none)
+++  int (*alltoall)(const void* sendbuf, void* recvbuf, size_t size);
++ };
++ 
++ void local_setup_ops(struct ops_t* ops);
++diff --git a/lct/pmi/pmi_wrapper_mpi.cpp b/lct/pmi/pmi_wrapper_mpi.cpp
++index f56950cf..adf28064 100644
++--- a/lct/pmi/pmi_wrapper_mpi.cpp
+++++ b/lct/pmi/pmi_wrapper_mpi.cpp
++@@ -3,6 +3,7 @@
++ #include <string.h>
++ #include "pmi_wrapper.hpp"
++ #include "pmii_archive.hpp"
+++#include <limits.h>
++ #include <mpi.h>
++ 
++ namespace lct
++@@ -103,6 +104,19 @@ void barrier()
++   archive::clear(&l_archive);
++ }
++ 
+++// A real collective: O(N^2) bytes in total, unlike the publish/barrier/getname
+++// emulation above, which makes every rank receive every other rank's entire
+++// key-value store (O(N^3) bytes in total for an alltoall of N entries per
+++// rank).
+++int alltoall(const void* sendbuf, void* recvbuf, size_t size)
+++{
+++  if (size > static_cast<size_t>(INT_MAX))
+++    return 0;
+++  MPI_Alltoall(sendbuf, static_cast<int>(size), MPI_BYTE, recvbuf,
+++               static_cast<int>(size), MPI_BYTE, MPI_COMM_WORLD);
+++  return 1;
+++}
+++
++ void finalize()
++ {
++   if (to_finalize_mpi) {
++@@ -130,6 +144,7 @@ void mpi_setup_ops(struct ops_t* ops)
++   ops->getname = mpi::getname;
++   ops->barrier = mpi::barrier;
++   ops->finalize = mpi::finalize;
+++  ops->alltoall = mpi::alltoall;
++ }
++ }  // namespace pmi
++ }  // namespace lct
++\ No newline at end of file
++diff --git a/src/bootstrap/bootstrap.cpp b/src/bootstrap/bootstrap.cpp
++index 35120c31..bcce7c32 100644
++--- a/src/bootstrap/bootstrap.cpp
+++++ b/src/bootstrap/bootstrap.cpp
++@@ -87,6 +87,14 @@ void alltoall(const void* sendbuf, void* recvbuf, size_t size)
++ 
++   if (device_to_bootstrap.is_empty() ||
++       !internal_config::enable_bootstrap_lci) {
+++    // Prefer a native collective of the PMI backend: emulating alltoall with
+++    // publish/barrier/getname ships O(N^3) bytes through the PMI servers and
+++    // takes many minutes at ~400 ranks.
+++    if (LCT_pmi_alltoall(sendbuf, recvbuf, size)) {
+++      LCI_Log(LOG_INFO, "bootstrap",
+++              "Bootstrap round %d done with a native PMI alltoall\n", round);
+++      return;
+++    }
++     LCI_Log(LOG_INFO, "bootstrap", "Bootstrap round %d with LCT PMI\n", round);
++     // use LCT pmi wrapper
++     for (int i = 0; i < rank_n; i++) {
+diff --git a/cmake/patches/lci-pmix-single-commit.patch b/cmake/patches/lci-pmix-single-commit.patch
+new file mode 100644
+index 0000000000..b68cfb20b4
+--- /dev/null
++++ b/cmake/patches/lci-pmix-single-commit.patch
+@@ -0,0 +1,29 @@
++diff --git a/lct/pmi/pmi_wrapper_pmix.cpp b/lct/pmi/pmi_wrapper_pmix.cpp
++index 9bc15a78..570f0ef8 100644
++--- a/lct/pmi/pmi_wrapper_pmix.cpp
+++++ b/lct/pmi/pmi_wrapper_pmix.cpp
++@@ -63,7 +63,6 @@ void publish(char* key, char* value)
++   val.type = PMIX_STRING;
++   val.data.string = value;
++   PMIX_SAFECALL(PMIx_Put(PMIX_GLOBAL, key, &val));
++-  PMIX_SAFECALL(PMIx_Commit());
++ }
++ 
++ void getname(int rank, char* key, char* value)
++@@ -80,6 +79,16 @@ void getname(int rank, char* key, char* value)
++ 
++ void barrier()
++ {
+++  // PMIx_Commit() re-sends this process's *entire* local put-store on every
+++  // call (a documented upstream scalability defect, not fixed until
+++  // OpenPMIx's unreleased master branch -- see openpmix#4087 / #4157). The
+++  // old code called it once per publish() in bootstrap::alltoall's O(N)
+++  // per-rank loop, making the actual bytes shipped O(N^2) per bootstrap
+++  // round -- fine at 256 ranks, a many-minutes-plus hang at 480+. Committing
+++  // exactly once here, right before the fence, matches PMIx's own
+++  // recommended put/commit/fence/get pattern for scalable wireup.
+++  PMIX_SAFECALL(PMIx_Commit());
+++
++   pmix_info_t* info;
++   PMIX_INFO_CREATE(info, 1);
++   bool flag = true;
+diff --git a/libs/full/parcelport_lci/src/config.cpp b/libs/full/parcelport_lci/src/config.cpp
+index b3ca0cb458..46f1d475d1 100644
+--- a/libs/full/parcelport_lci/src/config.cpp
++++ b/libs/full/parcelport_lci/src/config.cpp
+@@ -13,7 +13,9 @@
+ #include <hpx/modules/runtime_configuration.hpp>
+ #include <hpx/modules/util.hpp>
+ 
++#include <algorithm>
+ #include <cstddef>
++#include <cstdio>
+ #include <string>
+ 
+ namespace hpx::parcelset::policies::lci {
+@@ -160,6 +162,31 @@ namespace hpx::parcelset::policies::lci {
+             rtcfg, "hpx.parcel.lci.prepost_recv_num", 1 /* Does not matter*/);
+         ndevices = util::get_entry_as(
+             rtcfg, "hpx.parcel.lci.ndevices", 1 /* Does not matter*/);
++        // Every LCI device is fully connected to all other localities (one
++        // InfiniBand queue pair per remote locality), so the connection
++        // count and the startup cost grow with ndevices * num_localities.
++        // Reduce the number of devices for large jobs so that a process
++        // stays below `max_qps_per_process` connections (but keep at least
++        // one device). Set hpx.parcel.lci.max_qps_per_process = 0 to disable.
++        int const max_qps_per_process = util::get_entry_as(
++            rtcfg, "hpx.parcel.lci.max_qps_per_process", 256);
++        int const nlocalities = hpx::util::lci_environment::size();
++        if (max_qps_per_process > 0 && nlocalities > 0 &&
++            ndevices * nlocalities > max_qps_per_process)
++        {
++            int const old_ndevices = ndevices;
++            ndevices = (std::max) (1, max_qps_per_process / nlocalities);
++            ndevices = (std::min) (ndevices, old_ndevices);
++            if (ndevices != old_ndevices &&
++                hpx::util::lci_environment::rank() == 0)
++            {
++                fprintf(stderr,
++                    "WARNING: reducing hpx.parcel.lci.ndevices from %d to %d "
++                    "for %d localities (hpx.parcel.lci.max_qps_per_process = "
++                    "%d).\n",
++                    old_ndevices, ndevices, nlocalities, max_qps_per_process);
++            }
++        }
+         ncomps = util::get_entry_as(
+             rtcfg, "hpx.parcel.lci.ncomps", 1 /* Does not matter*/);
+         enable_in_buffer_assembly = util::get_entry_as(rtcfg,
+diff --git a/libs/full/parcelport_lci/src/parcelport_lci.cpp b/libs/full/parcelport_lci/src/parcelport_lci.cpp
+index 61661ee96d..dda231df4e 100644
+--- a/libs/full/parcelport_lci/src/parcelport_lci.cpp
++++ b/libs/full/parcelport_lci/src/parcelport_lci.cpp
+@@ -35,8 +35,10 @@
+ #include <asio/post.hpp>
+ #endif
+ 
++#include <algorithm>
+ #include <atomic>
+ #include <cstddef>
++#include <cstdlib>
+ #include <memory>
+ #include <string>
+ #include <type_traits>
+@@ -314,11 +316,59 @@ namespace hpx::parcelset::policies::lci {
+         }
+     }
+ 
++    namespace {
++        bool lci_attr_set_by_user(char const* env_name)
++        {
++            return std::getenv(env_name) != nullptr;
++        }
++
++        // LCI's ibv backend connects every device to every rank with one RC
++        // queue pair (QP) per remote rank, and by default also gives every QP
++        // its own thread domain. These per-process resources are finite: with
++        // ~500 ranks the thread domains run out ("ibv_alloc_td() failed:
++        // Cannot allocate memory"), followed by "Couldn't create QP" aborts
++        // during startup. The receive queue is also shared by all peers, so
++        // its default depth leaves too few buffers per peer at high rank
++        // counts and senders exhaust the HCA's RNR retry budget. Adapt the
++        // LCI defaults to the job size. Anything the user set explicitly via
++        // the LCI_ATTR_* environment variables is left untouched.
++        void tune_attr_for_scale(::lci::global_attr_t& attr, int nranks)
++        {
++            // HPX allocates its own devices and never uses LCI's internal
++            // default device, which would just build one more full QP mesh.
++            if (!lci_attr_set_by_user("LCI_ATTR_ALLOC_DEFAULT_DEVICE"))
++            {
++                attr.alloc_default_device = false;
++            }
++
++            // Above this many QPs per process, per-QP thread domains are no
++            // longer available; share the queues' locks instead.
++            constexpr int max_qps_per_process_with_td = 128;
++            if (nranks * config_t::ndevices > max_qps_per_process_with_td &&
++                !lci_attr_set_by_user("LCI_ATTR_IBV_TD_STRATEGY"))
++            {
++                attr.ibv_td_strategy = ::lci::attr_ibv_td_strategy_t::none;
++            }
++
++            // Keep a fixed number of posted receive buffers per peer. LCI
++            // clamps the value to the HCA's maximum shared receive queue size.
++            constexpr std::size_t recvs_per_peer = 64;
++            constexpr std::size_t max_recvs = 65536;
++            if (!lci_attr_set_by_user("LCI_ATTR_NET_MAX_RECVS"))
++            {
++                std::size_t const wanted = (std::min) (max_recvs,
++                    recvs_per_peer * static_cast<std::size_t>(nranks));
++                attr.net_max_recvs = (std::max) (attr.net_max_recvs, wanted);
++            }
++        }
++    }    // namespace
++
+     void parcelport::setup(util::runtime_configuration const& rtcfg)
+     {
+         HPX_UNUSED(rtcfg);
+ 
+         auto attr = ::lci::get_g_default_attr();
++        tune_attr_for_scale(attr, util::lci_environment::size());
+         // We will make sure the total packet number is always
+         // at least twice as large as the total preposted receives.
+         // We also set a minimum of 1024 preposted receives per device
