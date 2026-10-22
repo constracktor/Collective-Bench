@@ -1,32 +1,22 @@
 #!/usr/bin/env bash
-# Submit HPX benchmark jobs at node counts 1, 2, 4, 8, 16 for mpi and tcp
-# parcelports, plus 1, 2, 4, 8 for lci. hpx_tests.sbatch sweeps every
-# collective except barrier, sizes 1-65536, arity -1 and 2.
+# Submit HPX benchmark jobs at node counts 1, 2, 4, 8, 16 for the mpi, tcp and
+# lci parcelports. hpx_tests.sbatch sweeps every
+# collective except barrier, sizes 1-65536, arities -1, 2 and 8.
 #
-# lci is capped at 8 nodes (256 ranks) here, for two independent reasons
-# confirmed today:
-#   1. HPX's lci parcelport opens one IB QP per remote rank per process,
-#      hitting a ~485-507 QP/process ceiling (see hpx_tests.sbatch for the
-#      ndevices/default-device fix that brought this down from a 3x to a 1x
-#      multiplier). 8 nodes x 32 ranks = 256 QPs/process, confirmed working;
-#      16 nodes x 32 ranks = 512 sits right at/over that ceiling.
-#   2. Separately, LCI's own PMIx-based bootstrap exchange is an O(N^2)
-#      pattern that hard-hangs well before the QP ceiling even at reduced
-#      ranks/node (confirmed: 480 ranks hung completely). A local patch to
-#      LCI's PMIx wrapper (lct/pmi/pmi_wrapper_pmix.cpp, in the FetchContent
-#      build tree, not durable across a clean rebuild) is being verified --
-#      raise this cap only once 16 nodes has actually been re-tested and
-#      shown to complete.
-# mpi and tcp don't share either limitation (no IB QP mesh, no PMIx-bootstrap
-# wireup in this failure path) and are confirmed working at 8 nodes with no
-# indication they wouldn't scale to 16 the same as they always have.
+# lci used to be capped at 8 nodes (256 ranks): at ~500 ranks the InfiniBand
+# queue pair resources ran out and LCI's PMIx bootstrap took minutes to hang.
+# Both are fixed inside HPX by patches/hpx-lci-scale.patch (see README.md,
+# "LCI at 500+ localities"), so lci now runs at the same node counts as the
+# other parcelports.
 #
 # Does NOT submit the MPI reference benchmark. Each (parcelport, node count)
 # becomes one sbatch job.
-# Usage: ./run.sh
+# Usage: ./run.sh [parcelport...]   (default: mpi tcp lci)
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+parcelports=("$@")
+[[ ${#parcelports[@]} -eq 0 ]] && parcelports=(mpi tcp lci)
 
 # Select the SLURM partition for this cluster. The scripts' own #SBATCH
 # headers default to "workq" (qbd), which doesn't exist on rostam/medusa/buran
@@ -54,29 +44,21 @@ case "$(hostname)" in
         ;;
 esac
 
-for nodes in 1 2 4 8 16; do
-    echo "Submitting HPX parcelport=mpi nodes=$nodes"
-    sbatch --nodes="$nodes" \
-           --partition="$partition" \
-           --job-name="hpx_mpi_n${nodes}" \
-           "${ROOT}/hpx_tests.sbatch" \
-           --parcelport=mpi --nodes="$nodes"
-done
-
-for nodes in 1 2 4 8 16; do
-    echo "Submitting HPX parcelport=tcp nodes=$nodes"
-    sbatch --nodes="$nodes" \
-           --partition="$partition" \
-           --job-name="hpx_tcp_n${nodes}" \
-           "${ROOT}/hpx_tests.sbatch" \
-           --parcelport=tcp --nodes="$nodes"
-done
-
-for nodes in 1 2 4 8; do
-    echo "Submitting HPX parcelport=lci nodes=$nodes"
-    sbatch --nodes="$nodes" \
-           --partition="$partition" \
-           --job-name="hpx_lci_n${nodes}" \
-           "${ROOT}/hpx_tests.sbatch" \
-           --parcelport=lci --nodes="$nodes"
+for parcelport in "${parcelports[@]}"; do
+    case "$parcelport" in
+        mpi|tcp|lci) ;;
+        *) echo "ERROR: unknown parcelport '$parcelport' (expected mpi, tcp or lci)" >&2; exit 1 ;;
+    esac
+    for nodes in 1 2 4 8 16; do
+        # The 16-node sweeps outlast hpx_tests.sbatch's default 2-day limit.
+        time_limit=()
+        [[ "$nodes" -eq 16 ]] && time_limit=(--time=3-00:00:00)
+        echo "Submitting HPX parcelport=$parcelport nodes=$nodes"
+        sbatch --nodes="$nodes" \
+               --partition="$partition" \
+               --job-name="hpx_${parcelport}_n${nodes}" \
+               ${time_limit[@]+"${time_limit[@]}"} \
+               "${ROOT}/hpx_tests.sbatch" \
+               --parcelport="$parcelport" --nodes="$nodes"
+    done
 done
