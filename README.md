@@ -91,7 +91,7 @@ sbatch --partition=buran hpx_quick_tests.sbatch --parcelport=tcp
 At a single representative problem size (`test_size=256`) with minimal
 iterations and no repeats, fixed at 2 nodes × 32 ranks. The HPX script runs
 every operation (including `barrier`) at arities -1 and 2; the MPI script runs
-every algorithm ID of the seven non-scan collectives. Meant to finish in
+every algorithm ID of all nine collectives. Meant to finish in
 about a minute and sanity-check that every combination still runs and
 validates correctly — not to produce statistically meaningful timings. Use
 `mpi_tests.sbatch`/`hpx_tests.sbatch` for the full sweep.

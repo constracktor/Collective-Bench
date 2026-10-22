@@ -32,7 +32,7 @@ executable="$(pwd)/build/mpi/bin/benchmark_collectives_mpi"
 # finish in about a minute on 2 nodes, not to produce statistically
 # meaningful timings. For the full sweep (all problem sizes, 5 repeats) use
 # mpi_tests.sbatch instead. Algorithm IDs: see mpi_tests.sbatch or README.md.
-pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_reduce 7" "all_to_all 6")
+pairs=("broadcast 10" "reduce 8" "scatter 4" "gather 4" "all_gather 7" "all_reduce 7" "all_to_all 6" "inclusive_scan 3" "exclusive_scan 3")
 export PMIX_MCA_gds=hash
 iterations=3
 warmup=1
@@ -57,11 +57,13 @@ execute_task() {
   # OMPI_MCA_coll_tuned_<op>_algorithm parameter. See mpi_tests.sbatch.
   local mca_op
   case "$task_name" in
-    broadcast)  mca_op="bcast" ;;
-    all_gather) mca_op="allgather" ;;
-    all_reduce) mca_op="allreduce" ;;
-    all_to_all) mca_op="alltoall" ;;
-    *)          mca_op="$task_name" ;;
+    broadcast)      mca_op="bcast" ;;
+    all_gather)     mca_op="allgather" ;;
+    all_reduce)     mca_op="allreduce" ;;
+    all_to_all)     mca_op="alltoall" ;;
+    inclusive_scan) mca_op="scan" ;;
+    exclusive_scan) mca_op="exscan" ;;
+    *)              mca_op="$task_name" ;;
   esac
 
   for ((i=0; i<count; i++)); do
